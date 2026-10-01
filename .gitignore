@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Data, models, and generated artifacts
+data/
+*.npy
+*.faiss
+*.index
+results/runs/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+.env
