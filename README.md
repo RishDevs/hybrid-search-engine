@@ -59,3 +59,7 @@ Setup instructions will be added as the code lands. Requirements: Python 3.11, 8
 - [ ] FAISS index benchmark
 - [ ] Index compression study
 - [ ] User interface and final write-up
+
+## License
+
+[MIT](LICENSE)
