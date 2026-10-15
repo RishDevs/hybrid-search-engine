@@ -1,0 +1,48 @@
+{
+  "dataset": "scifact",
+  "recover_target": 0.9,
+  "threshold": 0.0,
+  "calibration_queries": 150,
+  "heldout_queries": 150,
+  "heldout": {
+    "ndcg_hybrid": 0.6779156963396863,
+    "ndcg_full_rerank": 0.6697208624460872,
+    "ndcg_routed": 0.6779156963396863,
+    "ndcg_random_same_share": 0.6779156963396863,
+    "retained": 1.0122361932457475,
+    "gain_recovered": null,
+    "reranked_share": 0.0
+  },
+  "latency": {
+    "device": "cpu",
+    "queries": 150,
+    "never": {
+      "mean_ms": 7.63,
+      "p50_ms": 7.42,
+      "p95_ms": 9.12,
+      "reranked_share": 0.0
+    },
+    "always": {
+      "mean_ms": 251.71,
+      "p50_ms": 253.14,
+      "p95_ms": 257.95,
+      "reranked_share": 1.0
+    },
+    "auto": {
+      "mean_ms": 7.24,
+      "p50_ms": 7.08,
+      "p95_ms": 8.18,
+      "reranked_share": 0.0
+    },
+    "mean_cut": 0.9712367406936554
+  },
+  "env": {
+    "python": "3.11.14",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "cpu": "Apple M4 Pro",
+    "faiss": "1.15.1",
+    "torch": "2.14.1",
+    "sentence_transformers": "6.1.0",
+    "commit": "f75051e"
+  }
+}

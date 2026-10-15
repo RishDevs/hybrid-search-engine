@@ -1,0 +1,64 @@
+{
+  "dataset": "scifact",
+  "docs": 5183,
+  "queries": 300,
+  "config": {
+    "dense_model": "BAAI/bge-small-en-v1.5",
+    "query_prefix": "Represent this sentence for searching relevant passages: ",
+    "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "k1": 0.9,
+    "b": 0.4,
+    "depth": 100,
+    "rrf_k": 60,
+    "w_bm25": 0.1,
+    "w_dense": 1.0,
+    "w_rerank": 0.5,
+    "rerank_depth": 30,
+    "index_factory": "Flat",
+    "device": "mps"
+  },
+  "systems": {
+    "bm25": {
+      "ndcg@10": 0.6804464265965364,
+      "recall@100": 0.922,
+      "mrr@10": 0.6475066137566138
+    },
+    "dense": {
+      "ndcg@10": 0.7056756050898959,
+      "recall@100": 0.9433333333333334,
+      "mrr@10": 0.6725211640211641
+    },
+    "hybrid": {
+      "ndcg@10": 0.7217696358236878,
+      "recall@100": 0.9433333333333334,
+      "mrr@10": 0.6906375661375661
+    },
+    "hybrid+ce-only": {
+      "ndcg@10": 0.6976358710332312,
+      "recall@100": 0.9433333333333334,
+      "mrr@10": 0.6633082010582011
+    },
+    "hybrid+rerank": {
+      "ndcg@10": 0.7170876193707696,
+      "recall@100": 0.9433333333333334,
+      "mrr@10": 0.6829034391534392
+    }
+  },
+  "p_values": {
+    "hybrid+rerank vs bm25": 0.011070050960124287,
+    "hybrid+rerank vs dense": 0.13356869908831565,
+    "hybrid+rerank vs hybrid": 0.42310316841299705,
+    "hybrid+rerank vs hybrid+ce-only": 0.07662353639254939,
+    "hybrid vs dense": 0.0010654381289033129
+  },
+  "seconds": 26.4,
+  "env": {
+    "python": "3.11.14",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "cpu": "Apple M4 Pro",
+    "faiss": "1.15.1",
+    "torch": "2.14.1",
+    "sentence_transformers": "6.1.0",
+    "commit": "f75051e"
+  }
+}

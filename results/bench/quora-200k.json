@@ -1,0 +1,731 @@
+{
+  "dataset": "quora-200k",
+  "docs": 200000,
+  "queries": 10000,
+  "dim": 384,
+  "recall_target": 0.95,
+  "max_ndcg_loss_points": 0.5,
+  "latency_queries": 1000,
+  "threads_for_latency": 1,
+  "model": "BAAI/bge-small-en-v1.5",
+  "indexes": [
+    {
+      "index": "Flat",
+      "knob": null,
+      "build_s": 0.02,
+      "bytes": 307200045,
+      "bytes_per_vector": 1536.0,
+      "compression": 1.0,
+      "operating_point": {
+        "param": null,
+        "recall@10": 1.0,
+        "latency_ms": 4.067654750004294,
+        "ndcg@10": 0.9323987680363341,
+        "speedup_vs_flat": 1.0
+      },
+      "reaches_target": true,
+      "ndcg@10": 0.9323987680363341,
+      "quality_point": {
+        "param": null,
+        "recall@10": 1.0,
+        "latency_ms": 4.067654750004294,
+        "ndcg@10": 0.9323987680363341,
+        "speedup_vs_flat": 1.0
+      },
+      "sweep": [
+        {
+          "param": null,
+          "recall@10": 1.0,
+          "latency_ms": 4.067654750004294,
+          "ndcg@10": 0.9323987680363341,
+          "speedup_vs_flat": 1.0
+        }
+      ],
+      "speedup_vs_flat": 1.0,
+      "ndcg_delta_points": 0.0
+    },
+    {
+      "index": "SQfp16",
+      "knob": null,
+      "build_s": 0.01,
+      "bytes": 153600081,
+      "bytes_per_vector": 768.0,
+      "compression": 2.0,
+      "operating_point": {
+        "param": null,
+        "recall@10": 0.99949,
+        "latency_ms": 5.063235084002372,
+        "ndcg@10": 0.9323994470500627,
+        "speedup_vs_flat": 0.8033707071702675
+      },
+      "reaches_target": true,
+      "ndcg@10": 0.9323994470500627,
+      "quality_point": {
+        "param": null,
+        "recall@10": 0.99949,
+        "latency_ms": 5.063235084002372,
+        "ndcg@10": 0.9323994470500627,
+        "speedup_vs_flat": 0.8033707071702675
+      },
+      "sweep": [
+        {
+          "param": null,
+          "recall@10": 0.99949,
+          "latency_ms": 5.063235084002372,
+          "ndcg@10": 0.9323994470500627,
+          "speedup_vs_flat": 0.8033707071702675
+        }
+      ],
+      "speedup_vs_flat": 0.8033707071702675,
+      "ndcg_delta_points": 6.790137285772602e-05
+    },
+    {
+      "index": "SQ8",
+      "knob": null,
+      "build_s": 0.04,
+      "bytes": 76803153,
+      "bytes_per_vector": 384.0,
+      "compression": 4.0,
+      "operating_point": {
+        "param": null,
+        "recall@10": 0.99409,
+        "latency_ms": 13.539787000001525,
+        "ndcg@10": 0.9322909712566522,
+        "speedup_vs_flat": 0.30042235893399477
+      },
+      "reaches_target": true,
+      "ndcg@10": 0.9322909712566522,
+      "quality_point": {
+        "param": null,
+        "recall@10": 0.99409,
+        "latency_ms": 13.539787000001525,
+        "ndcg@10": 0.9322909712566522,
+        "speedup_vs_flat": 0.30042235893399477
+      },
+      "sweep": [
+        {
+          "param": null,
+          "recall@10": 0.99409,
+          "latency_ms": 13.539787000001525,
+          "ndcg@10": 0.9322909712566522,
+          "speedup_vs_flat": 0.30042235893399477
+        }
+      ],
+      "speedup_vs_flat": 0.30042235893399477,
+      "ndcg_delta_points": -0.010779677968197898
+    },
+    {
+      "index": "PQ48",
+      "knob": null,
+      "build_s": 11.72,
+      "bytes": 9993302,
+      "bytes_per_vector": 50.0,
+      "compression": 30.7,
+      "operating_point": {
+        "param": null,
+        "recall@10": 0.71574,
+        "latency_ms": 1.7178607910027495,
+        "ndcg@10": 0.9102251670002195
+      },
+      "reaches_target": false,
+      "ndcg@10": 0.9102251670002195,
+      "quality_point": null,
+      "sweep": [
+        {
+          "param": null,
+          "recall@10": 0.71574,
+          "latency_ms": 1.7178607910027495,
+          "ndcg@10": 0.9102251670002195
+        }
+      ],
+      "rescored": {
+        "recall@10": 0.99381,
+        "ndcg@10": 0.9323682041390045,
+        "latency_ms": 1.799121208001452,
+        "ndcg_delta_points": -0.0030563897329694
+      },
+      "speedup_vs_flat": 2.367860522405848,
+      "ndcg_delta_points": -2.2173601036114654
+    },
+    {
+      "index": "OPQ48,PQ48",
+      "knob": null,
+      "build_s": 44.11,
+      "bytes": 10583197,
+      "bytes_per_vector": 52.9,
+      "compression": 29.0,
+      "operating_point": {
+        "param": null,
+        "recall@10": 0.75833,
+        "latency_ms": 1.6952620000010938,
+        "ndcg@10": 0.9138190235701535
+      },
+      "reaches_target": false,
+      "ndcg@10": 0.9138190235701535,
+      "quality_point": null,
+      "sweep": [
+        {
+          "param": null,
+          "recall@10": 0.75833,
+          "latency_ms": 1.6952620000010938,
+          "ndcg@10": 0.9138190235701535
+        }
+      ],
+      "rescored": {
+        "recall@10": 0.99664,
+        "ndcg@10": 0.9323987680363341,
+        "latency_ms": 1.7856291249991045,
+        "ndcg_delta_points": 0.0
+      },
+      "speedup_vs_flat": 2.399425428046915,
+      "ndcg_delta_points": -1.8579744466180603
+    },
+    {
+      "index": "HNSW32,Flat",
+      "knob": "efSearch",
+      "build_s": 3.85,
+      "bytes": 361628130,
+      "bytes_per_vector": 1808.1,
+      "compression": 0.8,
+      "operating_point": {
+        "param": 16,
+        "recall@10": 0.96777,
+        "latency_ms": 0.07934829200530658,
+        "ndcg@10": 0.9222342695520721
+      },
+      "reaches_target": true,
+      "ndcg@10": 0.9222342695520721,
+      "quality_point": {
+        "param": 32,
+        "recall@10": 0.97887,
+        "latency_ms": 0.12548700000479585,
+        "ndcg@10": 0.9280437099319541,
+        "speedup_vs_flat": 32.414949356099335
+      },
+      "sweep": [
+        {
+          "param": 16,
+          "recall@10": 0.96777,
+          "latency_ms": 0.07934829200530658,
+          "ndcg@10": 0.9222342695520721
+        },
+        {
+          "param": 24,
+          "recall@10": 0.97519,
+          "latency_ms": 0.1020665839969297,
+          "ndcg@10": 0.9261453878520791
+        },
+        {
+          "param": 32,
+          "recall@10": 0.97887,
+          "latency_ms": 0.12548700000479585,
+          "ndcg@10": 0.9280437099319541,
+          "speedup_vs_flat": 32.414949356099335
+        },
+        {
+          "param": 48,
+          "recall@10": 0.98372,
+          "latency_ms": 0.171370999996725,
+          "ndcg@10": 0.9296698958826682
+        },
+        {
+          "param": 64,
+          "recall@10": 0.98667,
+          "latency_ms": 0.21560795800178312,
+          "ndcg@10": 0.9305550921155067
+        },
+        {
+          "param": 96,
+          "recall@10": 0.99043,
+          "latency_ms": 0.30554045800090535,
+          "ndcg@10": 0.931559272099095
+        },
+        {
+          "param": 128,
+          "recall@10": 0.99211,
+          "latency_ms": 0.3835794589977013,
+          "ndcg@10": 0.9317592720990949
+        },
+        {
+          "param": 256,
+          "recall@10": 0.99522,
+          "latency_ms": 0.705697583995061,
+          "ndcg@10": 0.932059272099095
+        },
+        {
+          "param": 512,
+          "recall@10": 0.99736,
+          "latency_ms": 1.3328011249977862,
+          "ndcg@10": 0.9323979573798185
+        }
+      ],
+      "speedup_vs_flat": 51.263293099393515,
+      "ndcg_delta_points": -1.0164498484262041
+    },
+    {
+      "index": "HNSW32,SQ8",
+      "knob": "efSearch",
+      "build_s": 3.52,
+      "bytes": 131231238,
+      "bytes_per_vector": 656.2,
+      "compression": 2.3,
+      "operating_point": {
+        "param": 16,
+        "recall@10": 0.96316,
+        "latency_ms": 0.061918625004182104,
+        "ndcg@10": 0.9223047313194699
+      },
+      "reaches_target": true,
+      "ndcg@10": 0.9223047313194699,
+      "quality_point": {
+        "param": 32,
+        "recall@10": 0.97436,
+        "latency_ms": 0.09750724999321392,
+        "ndcg@10": 0.9281555165860591,
+        "speedup_vs_flat": 41.716433909144044
+      },
+      "sweep": [
+        {
+          "param": 16,
+          "recall@10": 0.96316,
+          "latency_ms": 0.061918625004182104,
+          "ndcg@10": 0.9223047313194699
+        },
+        {
+          "param": 24,
+          "recall@10": 0.97087,
+          "latency_ms": 0.07960470800026087,
+          "ndcg@10": 0.9265518340288232
+        },
+        {
+          "param": 32,
+          "recall@10": 0.97436,
+          "latency_ms": 0.09750724999321392,
+          "ndcg@10": 0.9281555165860591,
+          "speedup_vs_flat": 41.716433909144044
+        },
+        {
+          "param": 48,
+          "recall@10": 0.97878,
+          "latency_ms": 0.13246287500078324,
+          "ndcg@10": 0.9295790392100091
+        },
+        {
+          "param": 64,
+          "recall@10": 0.98178,
+          "latency_ms": 0.16628937500354368,
+          "ndcg@10": 0.9307290392100089
+        },
+        {
+          "param": 96,
+          "recall@10": 0.98532,
+          "latency_ms": 0.237361041996337,
+          "ndcg@10": 0.9314790392100089
+        },
+        {
+          "param": 128,
+          "recall@10": 0.98676,
+          "latency_ms": 0.3071087919961428,
+          "ndcg@10": 0.9316790392100089
+        },
+        {
+          "param": 256,
+          "recall@10": 0.98966,
+          "latency_ms": 0.5798716250064899,
+          "ndcg@10": 0.9320710112889238
+        },
+        {
+          "param": 512,
+          "recall@10": 0.99166,
+          "latency_ms": 1.146472915999766,
+          "ndcg@10": 0.9322859100527555
+        }
+      ],
+      "speedup_vs_flat": 65.69355746723312,
+      "ndcg_delta_points": -1.0094036716864263
+    },
+    {
+      "index": "IVF1024,Flat",
+      "knob": "nprobe",
+      "build_s": 0.98,
+      "bytes": 310381195,
+      "bytes_per_vector": 1551.9,
+      "compression": 1.0,
+      "operating_point": {
+        "param": 64,
+        "recall@10": 0.96574,
+        "latency_ms": 0.3457809579995228,
+        "ndcg@10": 0.9291555020216223,
+        "speedup_vs_flat": 11.763674823325314
+      },
+      "reaches_target": true,
+      "ndcg@10": 0.9291555020216223,
+      "quality_point": {
+        "param": 64,
+        "recall@10": 0.96574,
+        "latency_ms": 0.3457809579995228,
+        "ndcg@10": 0.9291555020216223,
+        "speedup_vs_flat": 11.763674823325314
+      },
+      "sweep": [
+        {
+          "param": 1,
+          "recall@10": 0.54664,
+          "latency_ms": 0.029595291998703033,
+          "ndcg@10": 0.7148214263236219
+        },
+        {
+          "param": 2,
+          "recall@10": 0.68,
+          "latency_ms": 0.035777416997007094,
+          "ndcg@10": 0.8293513595913817
+        },
+        {
+          "param": 4,
+          "recall@10": 0.77717,
+          "latency_ms": 0.0462877500031027,
+          "ndcg@10": 0.8863867545943324
+        },
+        {
+          "param": 8,
+          "recall@10": 0.84788,
+          "latency_ms": 0.06631287500204053,
+          "ndcg@10": 0.9114970373319944
+        },
+        {
+          "param": 12,
+          "recall@10": 0.8804,
+          "latency_ms": 0.08796529199753422,
+          "ndcg@10": 0.9179732148664563
+        },
+        {
+          "param": 16,
+          "recall@10": 0.90043,
+          "latency_ms": 0.10595279200060759,
+          "ndcg@10": 0.9220967957332016
+        },
+        {
+          "param": 24,
+          "recall@10": 0.925,
+          "latency_ms": 0.14677866699639708,
+          "ndcg@10": 0.9254506366308201
+        },
+        {
+          "param": 32,
+          "recall@10": 0.93944,
+          "latency_ms": 0.1845476249945932,
+          "ndcg@10": 0.9266087048290301
+        },
+        {
+          "param": 64,
+          "recall@10": 0.96574,
+          "latency_ms": 0.3457809579995228,
+          "ndcg@10": 0.9291555020216223,
+          "speedup_vs_flat": 11.763674823325314
+        },
+        {
+          "param": 128,
+          "recall@10": 0.9841,
+          "latency_ms": 0.6522471670032246,
+          "ndcg@10": 0.9308168282480154
+        }
+      ],
+      "speedup_vs_flat": 11.763674823325314,
+      "ndcg_delta_points": -0.324326601471181
+    },
+    {
+      "index": "IVF4096,Flat",
+      "knob": "nprobe",
+      "build_s": 3.71,
+      "bytes": 315124363,
+      "bytes_per_vector": 1575.6,
+      "compression": 1.0,
+      "operating_point": {
+        "param": 128,
+        "recall@10": 0.96919,
+        "latency_ms": 0.33103412500349805,
+        "ndcg@10": 0.9301198589253101
+      },
+      "reaches_target": true,
+      "ndcg@10": 0.9301198589253101,
+      "quality_point": {
+        "param": 64,
+        "recall@10": 0.94702,
+        "latency_ms": 0.20985066600405844,
+        "ndcg@10": 0.9284699749254354,
+        "speedup_vs_flat": 19.383568455892473
+      },
+      "sweep": [
+        {
+          "param": 1,
+          "recall@10": 0.51896,
+          "latency_ms": 0.08702666699537076,
+          "ndcg@10": 0.7167412605832963
+        },
+        {
+          "param": 2,
+          "recall@10": 0.64967,
+          "latency_ms": 0.09192875000007916,
+          "ndcg@10": 0.8239249398642955
+        },
+        {
+          "param": 4,
+          "recall@10": 0.74714,
+          "latency_ms": 0.09709437499986961,
+          "ndcg@10": 0.8767062027182172
+        },
+        {
+          "param": 8,
+          "recall@10": 0.82006,
+          "latency_ms": 0.10421529200539226,
+          "ndcg@10": 0.9052691387456886
+        },
+        {
+          "param": 16,
+          "recall@10": 0.87487,
+          "latency_ms": 0.12420470799406758,
+          "ndcg@10": 0.9173404254096599
+        },
+        {
+          "param": 24,
+          "recall@10": 0.90038,
+          "latency_ms": 0.13368154199997662,
+          "ndcg@10": 0.9219176157182967
+        },
+        {
+          "param": 32,
+          "recall@10": 0.91657,
+          "latency_ms": 0.1501230409994605,
+          "ndcg@10": 0.9249611575447702
+        },
+        {
+          "param": 48,
+          "recall@10": 0.93562,
+          "latency_ms": 0.1790591669996502,
+          "ndcg@10": 0.9269458103177171
+        },
+        {
+          "param": 64,
+          "recall@10": 0.94702,
+          "latency_ms": 0.20985066600405844,
+          "ndcg@10": 0.9284699749254354,
+          "speedup_vs_flat": 19.383568455892473
+        },
+        {
+          "param": 128,
+          "recall@10": 0.96919,
+          "latency_ms": 0.33103412500349805,
+          "ndcg@10": 0.9301198589253101
+        },
+        {
+          "param": 256,
+          "recall@10": 0.98395,
+          "latency_ms": 0.5567396659971564,
+          "ndcg@10": 0.931480660279324
+        }
+      ],
+      "speedup_vs_flat": 12.287720336872555,
+      "ndcg_delta_points": -0.2278909111024019
+    },
+    {
+      "index": "IVF1024,SQ8",
+      "knob": "nprobe",
+      "build_s": 1.1,
+      "bytes": 79984312,
+      "bytes_per_vector": 399.9,
+      "compression": 3.8,
+      "operating_point": {
+        "param": 64,
+        "recall@10": 0.96141,
+        "latency_ms": 0.9316385840065777,
+        "ndcg@10": 0.9291686911350414,
+        "speedup_vs_flat": 4.366129548339504
+      },
+      "reaches_target": true,
+      "ndcg@10": 0.9291686911350414,
+      "quality_point": {
+        "param": 64,
+        "recall@10": 0.96141,
+        "latency_ms": 0.9316385840065777,
+        "ndcg@10": 0.9291686911350414,
+        "speedup_vs_flat": 4.366129548339504
+      },
+      "sweep": [
+        {
+          "param": 1,
+          "recall@10": 0.54603,
+          "latency_ms": 0.03975120800168952,
+          "ndcg@10": 0.7148731384467022
+        },
+        {
+          "param": 2,
+          "recall@10": 0.67886,
+          "latency_ms": 0.05581004199484596,
+          "ndcg@10": 0.8293993643795097
+        },
+        {
+          "param": 4,
+          "recall@10": 0.77564,
+          "latency_ms": 0.08728133299882757,
+          "ndcg@10": 0.8864481350953854
+        },
+        {
+          "param": 8,
+          "recall@10": 0.84573,
+          "latency_ms": 0.14504945799853886,
+          "ndcg@10": 0.9115231881783568
+        },
+        {
+          "param": 12,
+          "recall@10": 0.87791,
+          "latency_ms": 0.20304116599436384,
+          "ndcg@10": 0.9179836257075336
+        },
+        {
+          "param": 16,
+          "recall@10": 0.89771,
+          "latency_ms": 0.2600097079994157,
+          "ndcg@10": 0.9221077969029989
+        },
+        {
+          "param": 24,
+          "recall@10": 0.92173,
+          "latency_ms": 0.36607875000481727,
+          "ndcg@10": 0.9254616378006174
+        },
+        {
+          "param": 32,
+          "recall@10": 0.93587,
+          "latency_ms": 0.4780385410049348,
+          "ndcg@10": 0.9266223930398081
+        },
+        {
+          "param": 64,
+          "recall@10": 0.96141,
+          "latency_ms": 0.9316385840065777,
+          "ndcg@10": 0.9291686911350414,
+          "speedup_vs_flat": 4.366129548339504
+        },
+        {
+          "param": 128,
+          "recall@10": 0.97905,
+          "latency_ms": 1.8179845409977133,
+          "ndcg@10": 0.9308300173614346
+        }
+      ],
+      "speedup_vs_flat": 4.366129548339504,
+      "ndcg_delta_points": -0.32300769012927333
+    },
+    {
+      "index": "IVF1024,PQ48",
+      "knob": "nprobe",
+      "build_s": 13.14,
+      "bytes": 13174452,
+      "bytes_per_vector": 65.9,
+      "compression": 23.3,
+      "operating_point": {
+        "param": 128,
+        "recall@10": 0.71614,
+        "latency_ms": 0.3175318339999649,
+        "ndcg@10": 0.9066686987692996
+      },
+      "reaches_target": false,
+      "ndcg@10": 0.9066686987692996,
+      "quality_point": null,
+      "sweep": [
+        {
+          "param": 1,
+          "recall@10": 0.49166,
+          "latency_ms": 0.06023512500541983,
+          "ndcg@10": 0.7021859370209568
+        },
+        {
+          "param": 2,
+          "recall@10": 0.58881,
+          "latency_ms": 0.0632376249996014,
+          "ndcg@10": 0.8128869489613849
+        },
+        {
+          "param": 4,
+          "recall@10": 0.6468,
+          "latency_ms": 0.06805612499738345,
+          "ndcg@10": 0.8667745266541559
+        },
+        {
+          "param": 8,
+          "recall@10": 0.67939,
+          "latency_ms": 0.0761618329997873,
+          "ndcg@10": 0.8900501706785117
+        },
+        {
+          "param": 16,
+          "recall@10": 0.69787,
+          "latency_ms": 0.0941393329994753,
+          "ndcg@10": 0.8996852234313685
+        },
+        {
+          "param": 32,
+          "recall@10": 0.70832,
+          "latency_ms": 0.12606008299917448,
+          "ndcg@10": 0.9036510258711045
+        },
+        {
+          "param": 64,
+          "recall@10": 0.71362,
+          "latency_ms": 0.19152941599895712,
+          "ndcg@10": 0.905468584221067
+        },
+        {
+          "param": 128,
+          "recall@10": 0.71614,
+          "latency_ms": 0.3175318339999649,
+          "ndcg@10": 0.9066686987692996
+        }
+      ],
+      "speedup_vs_flat": 12.810226611813492,
+      "ndcg_delta_points": -2.5730069267034583
+    },
+    {
+      "index": "BFlat",
+      "knob": null,
+      "build_s": 0.02,
+      "bytes": 9600033,
+      "bytes_per_vector": 48.0,
+      "compression": 32.0,
+      "operating_point": {
+        "param": null,
+        "recall@10": 0.65372,
+        "latency_ms": 0.42415116600022884,
+        "ndcg@10": 0.9143687908635336
+      },
+      "reaches_target": false,
+      "ndcg@10": 0.9143687908635336,
+      "quality_point": null,
+      "sweep": [
+        {
+          "param": null,
+          "recall@10": 0.65372,
+          "latency_ms": 0.42415116600022884,
+          "ndcg@10": 0.9143687908635336
+        }
+      ],
+      "rescored": {
+        "recall@10": 0.96532,
+        "ndcg@10": 0.9322504553564875,
+        "latency_ms": 0.467629124999803,
+        "ndcg_delta_points": -0.014831267984660723
+      },
+      "speedup_vs_flat": 9.590106254716979,
+      "ndcg_delta_points": -1.8029977172800526
+    }
+  ],
+  "env": {
+    "python": "3.11.14",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "cpu": "Apple M4 Pro",
+    "faiss": "1.15.1",
+    "torch": "2.14.1",
+    "sentence_transformers": "6.1.0",
+    "commit": "f75051e"
+  }
+}
