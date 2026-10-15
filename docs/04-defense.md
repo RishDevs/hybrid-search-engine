@@ -270,10 +270,32 @@ For differences of about 1 point, it's borderline, which is exactly what the p-v
 
 ---
 
-## Resume bullets that match the measured results
+## Resume bullets
 
-These are the bullets I can defend line by line with the files in `results/`:
+**Python, FAISS, BM25, Sentence-Transformers, cross-encoder, FastAPI, GitHub Actions**
 
-- Built hybrid retrieval in Python (from-scratch BM25 on scipy.sparse, bge-small embeddings in FAISS, weighted reciprocal rank fusion, cross-encoder as a fusion vote); **+1.4 nDCG@10 over dense and +8.5 over BM25** averaged across 3 BEIR datasets, with all weights tuned on dev splits only.
-- Benchmarked **12 FAISS configurations on a 200K-document corpus**: **32× smaller index** via binary quantization with **0.01-point nDCG@10 loss** using top-100 rescoring; HNSW **32× faster than exact search within 0.5 nDCG points** (51× at 0.97 recall@10).
-- Added a **GitHub Actions quality gate** that re-evaluates retrieval on every PR and fails on >0.5-point nDCG/recall regressions; built a calibrated margin router that skips the cross-encoder where it doesn't help (**mean CPU latency 252 → 7 ms** on SciFact with higher nDCG). Served it through FastAPI.
+- Built hybrid search (from-scratch BM25, bge-small + FAISS, weighted RRF, cross-encoder voting); **+8.5 nDCG@10 over BM25 and +1.4 over dense** across 3 BEIR datasets, tuned on dev splits only.
+- Benchmarked 12 FAISS indexes on 200K docs: **51× faster than exact search at 0.97 recall@10**; **32× smaller index with 0.01-point nDCG loss** via binary quantization + rescoring.
+- Built a GitHub Actions gate that fails PRs on >0.5-point quality regressions, and a router that skips the reranker where it hurts (**252 → 7 ms mean CPU latency** on SciFact); served via FastAPI.
+
+Every number above traces to a file in `results/`:
+
+| Claim | File |
+|---|---|
+| +8.5 / +1.4 nDCG@10 | `results/eval/{scifact,nfcorpus,fiqa}.json` (mean over the three) |
+| Dev-only tuning | `results/tune.json` |
+| 12 indexes, 200K docs, 51×, 0.968 recall | `results/bench/quora-200k.json` (HNSW32,Flat, efSearch=16) |
+| 32×, 0.01-point loss | same file (BFlat, `rescored`) |
+| 0.5-point gate | `src/hybrid_search/gate.py`, `.github/workflows/ci.yml`, `results/baseline.json` |
+| 252 → 7 ms | `results/routing/scifact.json` |
+
+### Compared with the earlier draft bullets
+
+| Earlier draft | Measured |
+|---|---|
+| +3.6 nDCG@10 over dense, +11.4 over BM25 | +1.4 over dense, +8.5 over BM25 |
+| 32× compression, 0.8-point loss | 32× compression, 0.01-point loss with rescoring (1.8 without) |
+| 18× faster at 0.96 recall@10 | 51× faster at 0.968 recall@10 (32× within 0.5 nDCG points) |
+| 34% lower latency, 97% of nDCG kept, 41% of queries reranked | Router switches reranking off where it hurts: 252 → 7 ms on SciFact with higher nDCG; per-query routing was no better than random |
+
+The earlier draft was written before any experiments ran. The quality gain is smaller than it claimed; the speed, compression and latency results are stronger.
