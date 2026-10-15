@@ -13,8 +13,8 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
       - run: uv sync --extra dev --python 3.11 --locked
@@ -25,12 +25,12 @@ jobs:
     needs: tests
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.0
         with:
           enable-cache: true
       - run: uv sync --python 3.11 --locked
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cache/huggingface
@@ -39,7 +39,7 @@ jobs:
           key: gate-${{ hashFiles('uv.lock', 'src/hybrid_search/config.py', 'src/hybrid_search/data.py', 'src/hybrid_search/bm25.py', 'src/hybrid_search/embed.py', 'src/hybrid_search/dense.py') }}
       - name: retrieval quality vs results/baseline.json
         run: uv run hse gate --dataset scifact --tolerance 0.5 --device cpu
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: gate-report

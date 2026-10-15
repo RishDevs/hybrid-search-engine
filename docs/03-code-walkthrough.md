@@ -731,7 +731,7 @@ def run_gate(dataset="scifact", tolerance=0.5, update=False, device="cpu"):
 - **Technical:**
   - It gates three systems so a regression is localized: if dense drops, the embedding side broke; if only hybrid+rerank drops, look at fusion or the reranker.
   - It gates two metrics because a change can keep nDCG@10 flat while losing recall@100. That's invisible today and painful once the reranker is changed.
-  - `device="cpu"` makes local and CI runs compare the same way. I built the baseline on CPU, and it matched the MPS numbers exactly.
+  - `device="cpu"` makes local and CI runs compare the same way. I built the baseline on CPU; it matched the MPS numbers exactly, and the first GitHub Actions run on Linux matched it to +0.00 on every metric.
   - The 0.5-point tolerance absorbs floating-point differences across machines while still catching real regressions.
   - Verified both ways: cutting `depth` from 100 to 10 failed the gate (recall@100 −11.4 points, exit code 1). Removing the query prefix *raised* SciFact scores and correctly passed.
   - Improvements never overwrite the baseline automatically. `--update` is a deliberate act that shows up in the PR diff.

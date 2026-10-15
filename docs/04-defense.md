@@ -25,7 +25,7 @@ This is for demos, presentations and interviews. Everything here is what I'd say
 | Query latency on CPU | ~7 ms without reranker, ~250 ms with | `results/routing/*.json` |
 | Router on SciFact | reranks 0%, 252 → 7 ms, nDCG +0.8 vs always-rerank | same |
 | Router per-query signal | about the same as random routing (NFCorpus 33.32 vs 33.24, FiQA 43.18 vs 43.16) | same |
-| CI gate | fails at −0.5 points; cutting depth 100 → 10 failed it (recall@100 −11.4) | verified locally |
+| CI gate | fails at −0.5 points; cutting depth 100 → 10 failed it (recall@100 −11.4); GitHub's Linux runner reproduced the baseline exactly | verified locally and in Actions |
 
 ---
 
@@ -191,11 +191,11 @@ The cross-encoder. Each reranked query costs about 250 ms of CPU, and PyTorch al
 
 **20. The CI gate only checks SciFact. Couldn't a change break FiQA and pass?**
 
-Yes. It's a tradeoff with CI time. SciFact runs in about 2 minutes on CPU; FiQA would add 10+. The gate catches regressions in shared code (tokenizer, fusion, model loading, depth), which hit every dataset. Dataset-specific regressions are caught by running `make eval` before a release. With a self-hosted or GPU runner I'd gate all three.
+Yes. It's a tradeoff with CI time. SciFact takes about 2 minutes on my 14-core laptop CPU, but about 19 minutes on GitHub's free 4-vCPU runner with a cold cache (the encoding is cached after that). FiQA would add far more. The gate catches regressions in shared code (tokenizer, fusion, model loading, depth), which hit every dataset. Dataset-specific regressions are caught by running `make eval` before a release. With a self-hosted or GPU runner I'd gate all three.
 
 **21. Why a 0.5-point tolerance? Won't it be flaky?**
 
-On the same machine, the evaluation is fully deterministic: I ran it twice and got +0.00 on every metric. Across machines, floating-point differences in BLAS can flip a near-tie, which moves nDCG by hundredths. 0.5 points absorbs that and still catches real regressions: cutting depth from 100 to 10 dropped hybrid nDCG by 0.94 and recall@100 by 5.9. It's an absolute threshold, not a statistical test. With 300 queries, a significance test would miss real regressions under about 1 point.
+The evaluation is deterministic: I ran it twice on my Mac and got +0.00 on every metric, and GitHub's Linux runner reproduced the Mac baseline exactly, +0.00 on all six gated numbers. Across other hardware, floating-point differences in BLAS could still flip a near-tie and move nDCG by hundredths. 0.5 points absorbs that and still catches real regressions: cutting depth from 100 to 10 dropped hybrid nDCG by 0.94 and recall@100 by 5.9. It's an absolute threshold, not a statistical test. With 300 queries, a significance test would miss real regressions under about 1 point.
 
 **22. You ran a lot of t-tests. Multiple comparisons?**
 
