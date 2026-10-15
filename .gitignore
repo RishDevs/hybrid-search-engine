@@ -9,10 +9,11 @@ venv/
 
 # Data, models, and generated artifacts
 data/
+artifacts/
 *.npy
 *.faiss
 *.index
-results/runs/
+results/gate/
 
 # OS / editor
 .DS_Store
