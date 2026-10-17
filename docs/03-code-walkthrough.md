@@ -875,7 +875,8 @@ All 37 run in under 2 seconds, with no models or downloads, so they run first in
 tests:          uv sync --locked → pytest
 quality-gate:   needs: tests
                 cache 1: ~/.cache/huggingface, cache/   (model weights + reranker scores)
-                  key = hash(config.py), restore-keys: models-
+                  restore: newest models-<hash(config.py)>-*, else newest models-*
+                  save: models-<hash(config.py)>-<run id>, even if the gate fails
                 cache 2: data/, artifacts/   (datasets, BM25, vectors, FAISS)
                   key = hash(uv.lock, config.py, data.py, bm25.py, embed.py, dense.py)
                 hse gate --dataset scifact --tolerance 0.5 --device cpu
@@ -885,6 +886,7 @@ quality-gate:   needs: tests
 - **Technical:**
   - `--locked` fails if `uv.lock` is out of date, rather than silently re-resolving to different versions.
   - The gate only runs after unit tests pass, which saves minutes on broken PRs.
+  - The model cache is restored and saved as separate steps, and the save runs even when the gate fails. A plain `actions/cache` only saves on success, so a cold run that timed out or failed would throw away an hour of reranker scoring. A fresh key per run means newly scored pairs accumulate; GitHub evicts old entries when the repo's 10 GB cache limit is reached.
   - There are two caches because they go stale for different reasons. Model weights and reranker scores depend only on the models (and the text, which is in the score key), so they're restored even after code changes. Indexes depend on code, so their key includes every file that changes how artifacts are built. Editing `bm25.py` therefore invalidates the cache and rebuilds the index, instead of evaluating new code against stale indexes. Editing `fusion.py` doesn't, because fusion happens at query time.
-  - `concurrency` cancels superseded runs on the same branch. `timeout-minutes: 120` covers the cold first run, where the 150M-parameter reranker scores everything on a 4-vCPU CPU.
+  - `concurrency` cancels superseded runs on the same branch. `timeout-minutes: 120` covers the cold first run. Measured: 88 minutes, 78 of them spent reranking about 9,000 SciFact pairs at about 2 pairs/s on the free 4-vCPU runner. That run reproduced the Mac baseline exactly (+0.00 on all six metrics).
   - It's free: public repos get unlimited GitHub Actions minutes on standard runners.

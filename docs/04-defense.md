@@ -175,11 +175,11 @@ The cross-encoder. Each reranked query is about 1.6 s of CPU, and PyTorch alread
 
 **19. The CI gate only checks SciFact. Couldn't a change break FiQA and pass?**
 
-Yes; it's a CI-time tradeoff. SciFact catches regressions in shared code (tokenizer, fusion, depth, model loading). Dataset-specific regressions are caught by `make eval` before a release. With the score cache, adding FiQA to the gate would mostly cost a first cold run.
+Yes; it's a CI-time tradeoff. The first cold gate run took 88 minutes on GitHub's free runner, almost all of it reranking SciFact on CPU; with cached scores, later runs only score changed pairs. SciFact catches regressions in shared code (tokenizer, fusion, depth, model loading). Dataset-specific regressions are caught by `make eval` before a release. Adding FiQA would mean one more slow cold run, then cheap runs.
 
 **20. Won't a 0.5-point tolerance be flaky?**
 
-The evaluation is deterministic: two local runs gave +0.00 on every metric, and GitHub's Linux runner reproduced the Mac baseline exactly. Cutting candidate depth from 100 to 10 dropped hybrid nDCG by 0.94 and recall@100 by 5.9 and failed the gate.
+The evaluation is deterministic: two local runs gave +0.00 on every metric, and GitHub's Linux runner, scoring the reranker from scratch on CPU, reproduced the Mac baseline exactly on all six gated numbers. Cutting candidate depth from 100 to 10 dropped hybrid nDCG by 0.94 and recall@100 by 5.9 and failed the gate.
 
 **21. Isn't caching reranker scores in CI cheating the test?**
 

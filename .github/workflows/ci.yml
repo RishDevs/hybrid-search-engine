@@ -30,13 +30,15 @@ jobs:
         with:
           enable-cache: true
       - run: uv sync --python 3.11 --locked
-      - uses: actions/cache@v6
+      - uses: actions/cache/restore@v6
         with:
           path: |
             ~/.cache/huggingface
             cache
-          key: models-${{ hashFiles('src/hybrid_search/config.py') }}
-          restore-keys: models-
+          key: models-${{ hashFiles('src/hybrid_search/config.py') }}-${{ github.run_id }}
+          restore-keys: |
+            models-${{ hashFiles('src/hybrid_search/config.py') }}
+            models-
       - uses: actions/cache@v6
         with:
           path: |
@@ -45,6 +47,13 @@ jobs:
           key: index-${{ hashFiles('uv.lock', 'src/hybrid_search/config.py', 'src/hybrid_search/data.py', 'src/hybrid_search/bm25.py', 'src/hybrid_search/embed.py', 'src/hybrid_search/dense.py') }}
       - name: retrieval quality vs results/baseline.json
         run: uv run hse gate --dataset scifact --tolerance 0.5 --device cpu
+      - uses: actions/cache/save@v6
+        if: always()
+        with:
+          path: |
+            ~/.cache/huggingface
+            cache
+          key: models-${{ hashFiles('src/hybrid_search/config.py') }}-${{ github.run_id }}
       - uses: actions/upload-artifact@v7
         if: always()
         with:
