@@ -1,0 +1,68 @@
+{
+  "recover_target": 0.8,
+  "threshold": 0.05731740933863227,
+  "dev_share": 0.3974280465401102,
+  "weights": {
+    "intercept": 0.04407986150513207,
+    "fused_margin": -0.0022291026908199856,
+    "dense_top1": 0.006443692743757602,
+    "dense_gap_1_2": -0.0035025153752971717,
+    "dense_gap_1_10": -0.01563283282437602,
+    "overlap_at_10": -0.025448793901182022,
+    "bm25_gap_1_2": -0.013583459634424432,
+    "log_bm25_hits": 0.004850053911142588,
+    "query_terms": 0.015145100976759867
+  },
+  "test_pooled": {
+    "queries": 1271,
+    "reranked_share": 0.4901652242328875,
+    "ndcg_hybrid": 0.4672222579882868,
+    "ndcg_full_rerank": 0.5157812521020101,
+    "ndcg_routed": 0.5006345170506998,
+    "ndcg_random_same_share": 0.49102418822656346,
+    "gain_recovered": 0.688075601075319
+  },
+  "test": {
+    "scifact": {
+      "queries": 300,
+      "reranked_share": 0.2833333333333333,
+      "ndcg_hybrid": 0.7212320550448175,
+      "ndcg_full_rerank": 0.7778091793514988,
+      "ndcg_routed": 0.7515372186449444,
+      "ndcg_random_same_share": 0.7372622402650438,
+      "gain_recovered": 0.535643406615279
+    },
+    "nfcorpus": {
+      "queries": 323,
+      "reranked_share": 0.17647058823529413,
+      "ndcg_hybrid": 0.35630623685387125,
+      "ndcg_full_rerank": 0.373476834304019,
+      "ndcg_routed": 0.3618539625216647,
+      "ndcg_random_same_share": 0.3593363422862503,
+      "gain_recovered": 0.32309450407304807
+    },
+    "fiqa": {
+      "queries": 648,
+      "reranked_share": 0.7422839506172839,
+      "ndcg_hybrid": 0.4049119735893007,
+      "ndcg_full_rerank": 0.4654046298395169,
+      "ndcg_routed": 0.45365196864731266,
+      "ndcg_random_same_share": 0.4498147014540445,
+      "gain_recovered": 0.8057175544814624
+    }
+  },
+  "latency_mean_ms": {
+    "always": 1594.1533333333334,
+    "auto": 677.82,
+    "cut": 0.5748087804184457
+  },
+  "env": {
+    "python": "3.11.14",
+    "platform": "macOS-27.0.1-arm64-arm-64bit",
+    "cpu": "Apple M4 Pro",
+    "faiss": "1.15.1",
+    "torch": "2.14.1",
+    "sentence_transformers": "6.1.0",
+    "commit": "18c0a8b"
+  }
+}

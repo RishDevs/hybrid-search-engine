@@ -1,48 +1,34 @@
 {
   "dataset": "fiqa",
-  "recover_target": 0.9,
-  "threshold": 0.07337354868650436,
-  "calibration_queries": 324,
-  "heldout_queries": 324,
-  "heldout": {
-    "ndcg_hybrid": 0.42451688975259905,
-    "ndcg_full_rerank": 0.431981074982898,
-    "ndcg_routed": 0.4317531626348302,
-    "ndcg_random_same_share": 0.43158943563439467,
-    "retained": 0.9994724020072481,
-    "gain_recovered": 0.9694658772477079,
-    "reranked_share": 0.9475308641975309
+  "test": {
+    "queries": 648,
+    "reranked_share": 0.7422839506172839,
+    "ndcg_hybrid": 0.4049119735893007,
+    "ndcg_full_rerank": 0.4654046298395169,
+    "ndcg_routed": 0.45365196864731266,
+    "ndcg_random_same_share": 0.4498147014540445,
+    "gain_recovered": 0.8057175544814624
   },
   "latency": {
-    "device": "cpu",
-    "queries": 200,
     "never": {
-      "mean_ms": 7.89,
-      "p50_ms": 7.86,
-      "p95_ms": 8.64,
+      "mean_ms": 8.05,
+      "p50_ms": 8.01,
+      "p95_ms": 9.16,
       "reranked_share": 0.0
     },
     "always": {
-      "mean_ms": 258.67,
-      "p50_ms": 262.02,
-      "p95_ms": 265.89,
+      "mean_ms": 1610.34,
+      "p50_ms": 1620.99,
+      "p95_ms": 1634.27,
       "reranked_share": 1.0
     },
     "auto": {
-      "mean_ms": 243.59,
-      "p50_ms": 261.93,
-      "p95_ms": 265.61,
-      "reranked_share": 0.94
+      "mean_ms": 1296.34,
+      "p50_ms": 1600.0,
+      "p95_ms": 1632.52,
+      "reranked_share": 0.81
     },
-    "mean_cut": 0.0582982178064716
-  },
-  "env": {
-    "python": "3.11.14",
-    "platform": "macOS-27.0.1-arm64-arm-64bit",
-    "cpu": "Apple M4 Pro",
-    "faiss": "1.15.1",
-    "torch": "2.14.1",
-    "sentence_transformers": "6.1.0",
-    "commit": "f75051e"
+    "mean_cut": 0.19498987791398092,
+    "device": "cpu"
   }
 }
