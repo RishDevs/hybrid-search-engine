@@ -31,33 +31,34 @@ Everything is cached on disk. A second run loads the files instead of rebuilding
 ### Path B: answering one query (`hse search "..."` or `GET /search?q=...`)
 
 ```
-HybridSearcher.open(dataset)                  load Dataset + artifacts + both models + router.json (once)
+HybridSearcher.open(dataset)                  load Dataset + artifacts + both models + results/router.json (once)
 HybridSearcher.search(query, k=10, rerank="auto")
  1. encoder.encode_queries([query])           "Represent this sentence...: " + query → (1 × 384) float32
- 2. index.search(qvec, 100)                   FAISS inner product → top-100 doc indices (dense ranking)
- 3. bm25.search(query, 100)                   analyze → look up term columns → sum weights → top-100 (keyword ranking)
- 4. _fuse(bm_ids, dense_ids)                  weighted RRF: 0.1/(60+rank_bm25) + 1.0/(60+rank_dense) → fused ranking (≤200 docs)
- 5. top_margin(fused_scores)                  (s1 − s2) / s1 → a number between 0 and 1
- 6. router.should_rerank(margin)              margin < threshold?
+ 2. index.search(qvec, 100)                   FAISS inner product → top-100 doc indices + cosine scores (dense ranking)
+ 3. bm25.search(query, 100)                   analyze → look up term columns → sum weights → top-100 + scores (keyword ranking)
+ 4. _fuse(bm_ids, dense_ids)                  weighted RRF: 0.3/(60+rank_bm25) + 1.0/(60+rank_dense) → fused ranking (≤200 docs)
+ 5. features(query, bm, dense, fused)         8 numbers: fused margin, dense top-1 and gaps, BM25/dense overlap@10, BM25 gap, hits, query length
+ 6. router.predict(features)                  linear model → predicted nDCG gain from reranking
+ 7. predicted ≥ router.threshold?
     ├─ no  → return the fused top-k
-    └─ yes → reranker.rerank(query, fused[:30])     cross-encoder scores 30 (query, doc) pairs → its own ranking
-             _fuse(bm_ids, dense_ids, ce_ids)       RRF over three lists with weights (0.5, 0.1, 1.0)
+    └─ yes → reranker.rerank(query, fused[:30])     gte cross-encoder scores 30 (query, doc) pairs → its own ranking
+             _fuse(bm_ids, dense_ids, ce_ids)       RRF over three lists with weights (4.0, 0.3, 1.0)
              return that top-k
- 7. return SearchResult(hits, reranked, margin, timings_ms)
+ 8. return SearchResult(hits, reranked, predicted_gain, timings_ms)
 ```
 
-On CPU, steps 1–5 take about 7 ms in total and step 6 (reranking 30 pairs) takes about 245 ms. That ratio is why the router exists.
+On CPU, steps 1–7 take about 8 ms in total and reranking 30 pairs takes about 1,600 ms. That ratio is why the router exists.
 
 ### Path C: evaluating quality (`hse eval`)
 
 ```
 experiments.evaluate(dataset)
- └─ HybridSearcher.open
+ └─ HybridSearcher.open(..., cache_scores=True)
  └─ run_batch(all test queries)              same logic as Path B, but batched:
      ├─ encode all queries at once, one FAISS call for all queries
      ├─ BM25 per query
-     ├─ fuse per query                         → "hybrid"
-     └─ cross-encoder over every (query, top-30) pair in one big batch
+     ├─ fuse per query                         → "hybrid", plus the 8 router features per query
+     └─ cross-encoder over every (query, top-30) pair in one big batch (cached scores reused)
          ├─ "hybrid+ce-only"   cross-encoder order replaces the top 30
          └─ "hybrid+rerank"    cross-encoder votes in RRF (the real pipeline)
  └─ metrics.to_run → metrics.summarize       nDCG@10, recall@100, MRR@10 per system
@@ -65,9 +66,9 @@ experiments.evaluate(dataset)
  └─ writes results/eval/<dataset>.json and .per_query.json
 ```
 
-### Path D: tuning fusion weights (`hse tune`)
+### Path D: choosing the reranker and weights (`hse tune`)
 
-Loads the **train/dev** splits (SciFact train, NFCorpus dev, FiQA dev). For each BM25 weight in {0.1 … 1.0}, it fuses and runs the cross-encoder once. For each reranker weight in {0 … 2}, it re-fuses and scores nDCG. It picks the pair with the best mean across the three datasets and writes `results/tune.json`. The winning values (0.1, 0.5) were then copied into `Config` by hand. Test queries are never touched here.
+Loads the **train/dev** splits (SciFact train, NFCorpus dev, FiQA dev) and runs BM25 and dense once. For every query it builds one candidate pool: the union of the fused top 30 under every BM25 weight in the grid. Each candidate reranker (MiniLM-L6, bge-reranker-base, gte-reranker-modernbert) scores each pool once, with scores going into the SQLite cache. Then it grid-searches rerank depth {10, 20, 30} × BM25 weight {0.1 … 0.5} × reranker weight {0.5 … 10} using lookups only, and writes every combination to `results/tune.json`. The winner (gte, depth 30, 0.3, 4.0) is the default in `Config`. Test queries are never touched.
 
 ### Path E: FAISS benchmark (`hse bench`)
 
@@ -75,11 +76,11 @@ Loads Quora, subsamples it to 200K docs (keeping every labeled doc), and encodes
 
 ### Path F: routing (`hse route`)
 
-Reads the per-query nDCG and margins saved by Path C. It splits the queries into two random halves, calibrates the threshold on the first half, and reports quality on the second half. It then times 200 held-out queries end to end with rerank set to `never`, `always` and `auto`, and saves `router.json` so the API uses it.
+Runs the full pipeline (with cached reranker scores) on the same dev/train queries and records each query's 8 features and its nDCG without and with reranking. `Router.train` fits a ridge regression from features to gain, picks the threshold from cross-validated predictions so that 80% of the gain is recovered, refits on all dev queries, and saves `results/router.json`. Only then does it load the **test** per-query file from Path C, apply the frozen router, and compare against reranking always, never, and at random with the same share. Finally it times 100 test queries per dataset end to end on CPU in `never`, `always` and `auto` modes.
 
 ### Path G: CI gate (`hse gate`, run by GitHub Actions)
 
-Runs Path C on SciFact on CPU and compares dense, hybrid and hybrid+rerank against `results/baseline.json`. If nDCG@10 or recall@100 dropped by more than 0.5 points, it exits with code 1, which fails the GitHub check.
+Runs Path C on SciFact on CPU and compares dense, hybrid and hybrid+rerank against `results/baseline.json`. If nDCG@10 or recall@100 dropped by more than 0.5 points, it exits with code 1, which fails the GitHub check. Model weights and reranker scores are cached between CI runs.
 
 ### How the files depend on each other
 
@@ -105,8 +106,8 @@ If you only have an hour, learn these. They carry the system, and they're what i
 | 3 | `HybridSearcher.search` and `_fuse` (pipeline.py) | The actual query path, including the reranker-as-a-voter decision. |
 | 4 | `DenseIndex.build` / `search` (dense.py) | Every FAISS index type goes through it: training, binary quantization, metric choice. |
 | 5 | `ndcg_at_k` and `to_run` (metrics.py) | Every number in the project is computed here. If this is wrong, everything is wrong. |
-| 6 | `MarginRouter.calibrate` (router.py) | Decides when the expensive model runs. |
-| 7 | `tune` and the test/dev separation (experiments.py) | Why the results can be trusted. |
+| 6 | `query_features`, `Router.train`, `pick_threshold` (router.py) | Decides when the 1.6-second model runs; trained on dev, measured on test. |
+| 7 | `tune` and the test/dev separation (experiments.py) | Why the results can be trusted; it picked the reranker that made the biggest difference. |
 | 8 | `run_gate` (gate.py) + `ci.yml` | How quality is enforced. |
 | 9 | `ensure_single_runtime` / `fix` (openmp.py) | The hardest debugging problem in the project. |
 
@@ -123,24 +124,26 @@ HOME = Path(os.environ.get("HSE_HOME", Path.cwd()))
 DATA_DIR = HOME / "data"
 ARTIFACTS_DIR = HOME / "artifacts"
 RESULTS_DIR = HOME / "results"
+CACHE_DIR = HOME / "cache"
+ROUTER_FILE = RESULTS_DIR / "router.json"
 ```
 
 - **Plain:** It's like deciding where the pantry, fridge and recipe book live before you start cooking. Everyone knows where to look.
-- **Technical:** All paths are relative to `HSE_HOME`, which defaults to the current directory. That lets tests or CI point the project at a temp folder by setting one environment variable. If the paths were hardcoded relative to the package's install location, `pip install` (non-editable) would try to write datasets into `site-packages`.
+- **Technical:** All paths are relative to `HSE_HOME`, which defaults to the current directory. `cache/` holds reranker scores; the trained router lives in `results/` so it's committed with the numbers it produced. That lets tests or CI point the project at a temp folder by setting one environment variable. If the paths were hardcoded relative to the package's install location, `pip install` (non-editable) would try to write datasets into `site-packages`.
 
 ```python
 @dataclass
 class Config:
     dense_model: str = "BAAI/bge-small-en-v1.5"
     query_prefix: str = BGE_PREFIX
-    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
+    reranker_model: str = "Alibaba-NLP/gte-reranker-modernbert-base"
     k1: float = 0.9
     b: float = 0.4
     depth: int = 100
     rrf_k: int = 60
-    w_bm25: float = 0.1
+    w_bm25: float = 0.3
     w_dense: float = 1.0
-    w_rerank: float = 0.5
+    w_rerank: float = 4.0
     rerank_depth: int = 30
     index_factory: str = "Flat"
     device: str | None = None
@@ -151,8 +154,7 @@ class Config:
   - `k1=0.9, b=0.4` are the Anserini BM25 defaults used for BEIR baselines. `k1` controls how fast repeated words stop adding score. `b` controls how much long documents are penalized.
   - `depth=100` means each retriever returns 100 candidates.
   - `rrf_k=60` is the constant from the original RRF paper (Cormack et al., 2009).
-  - `w_bm25=0.1, w_rerank=0.5` came out of `hse tune` on dev splits.
-  - `rerank_depth=30` means the cross-encoder sees only the top 30 fused docs.
+  - The reranker, `w_bm25=0.3`, `w_rerank=4.0` and `rerank_depth=30` came out of `hse tune` on dev splits. The cross-encoder sees only the top 30 fused docs, and its vote counts four times as much as dense search's.
   - `device=None` means "pick automatically."
   - Because it's a dataclass, `to_dict()` writes the exact config into every result file, so any number can be traced back to the settings that produced it.
 
@@ -479,7 +481,7 @@ def rrf(rankings, k=60, weights=None, limit=None):
   - It uses **ranks, not scores**. BM25 scores are unbounded (0 to 30+) and cosine scores sit in [−1, 1], so adding raw scores would let BM25 dominate. Normalizing them is fragile because the score distribution changes per query. Ranks are on the same scale for every retriever.
   - `k=60` flattens the curve: rank 1 vs rank 2 is 1/61 vs 1/62, a 1.6% difference, so one retriever's top pick can't dominate alone.
   - A document missing from a list gets 0 from it, not a penalty.
-  - Weights are what made hybrid work on FiQA. At equal weights, BM25 (23.8 nDCG) dragged dense (40.4) down to 36.4. At `w_bm25=0.1`, hybrid reached 41.1.
+  - Weights are what made hybrid work on FiQA. At equal weights, BM25 (23.8 nDCG) dragged dense (40.4) down to 36.4. Down-weighting BM25 fixed it. The final 0.3 was tuned jointly with the reranker, so it's chosen for the whole pipeline, not for hybrid alone.
   - Sorting by `(-score, doc_id)` makes ties deterministic. Without that, Python's dict order would decide ties, and reruns could differ.
   - `-1` IDs (FAISS padding) are skipped. A weight of 0 skips a list entirely, which is how the tuning grid tests "no reranker."
 
@@ -488,14 +490,16 @@ def top_margin(scores):
     return (scores[0] - scores[1]) / scores[0]
 ```
 
-- **Plain:** How far ahead is the winner? If the top two are nearly tied, the system isn't sure, and that's when the careful model is called in.
-- **Technical:** It's the relative gap between the top two fused scores, in [0, 1]. Dividing by `scores[0]` makes it scale-free, so it doesn't depend on the weights. Edge cases: one result gives 1.0 (certain); none gives 0.0.
+- **Plain:** How far ahead is the winner? If the top two are nearly tied, the system looks unsure.
+- **Technical:** It's the relative gap between the top two fused scores, in [0, 1]. Dividing by `scores[0]` makes it scale-free. Edge cases: one result gives 1.0; none gives 0.0. This was my first routing signal on its own. It turned out to be uncorrelated with reranker gain, so it's now just one of the router's eight features, and the router gives it almost no weight.
 
-### 3.8 `rerank.py`: the cross-encoder
+### 3.8 `rerank.py`: the cross-encoder and its score cache
 
 ```python
 class Reranker:
-    self.model = CrossEncoder(model_name, device=..., max_length=512)
+    def __init__(self, model_name, device=None, batch_size=32, max_length=512, cache=False):
+        self.model = CrossEncoder(model_name, device=..., max_length=max_length)
+        self.cache = ScoreCache(model_name) if cache else None
 
     def rerank(self, query, doc_ids, texts):
         scores = self.score(query, [texts[i] for i in doc_ids])
@@ -503,59 +507,101 @@ class Reranker:
         return np.asarray(doc_ids)[order], scores[order]
 ```
 
-- **Plain:** The embedding model reads the question and each document *separately*, like comparing two summaries. The cross-encoder reads them *together*, word by word against word, like a person reading both side by side. It's more accurate but much slower, so it only reads the top 30.
+- **Plain:** The embedding model reads the question and each document *separately*, like comparing two summaries. The cross-encoder reads them *together*, word against word, like a person reading both side by side. It's more accurate but much slower, so it only reads the top 30.
 - **Technical:**
-  - `ms-marco-MiniLM-L-6-v2` is a 6-layer, 22M-parameter BERT that takes `[CLS] query [SEP] doc [SEP]` and outputs one relevance logit.
-  - Cost is one full transformer forward pass per (query, doc) pair, with attention across both texts. That's why it can't be precomputed or indexed.
-  - Measured on CPU: about 110 pairs/s, so 30 pairs is about 250 ms, versus about 7 ms for everything else.
-  - `max_length=512` truncates long docs (some FiQA answers), which is a known quality loss on long documents.
+  - The default model is `Alibaba-NLP/gte-reranker-modernbert-base`: 150M parameters, Apache-2.0, built on ModernBERT. It takes the query and the passage as one sequence and outputs one relevance score.
+  - The cost is one full transformer forward pass per (query, doc) pair, with attention across both texts. That's why it can't be precomputed or indexed like embeddings.
+  - Measured on CPU: about 19 pairs/s, so 30 pairs is about 1.6 s, versus about 8 ms for everything else.
+  - `max_length=512` truncates long documents. ModernBERT could read more, but longer inputs would make it slower still.
+  - The reranker was chosen on dev data from four candidates. Three are in `hse tune`; bge-reranker-v2-m3 (568M) was dropped earlier because it lost to gte on SciFact-train (77.3 vs 79.2) and is 2.4× slower. The tutorial default, MiniLM-L6, made SciFact worse.
+
+```python
+class ScoreCache:
+    key = sha1(query + "\x1f" + passage)
+    table s(k TEXT PRIMARY KEY, v REAL) in cache/ce/<model>.sqlite
+    get_many(keys) in chunks of 900; put_many(items)
+```
+
+- **Plain:** The expert's opinion on a given question and document never changes. So we write every opinion down, and next time we look it up instead of asking again.
+- **Technical:**
+  - A cross-encoder score is a pure function of (model, query text, passage text). The key hashes the two texts, with `\x1f` (an ASCII separator character) between them so "ab"+"c" and "a"+"bc" can't collide, and the model gets its own file.
+  - SQLite is in the standard library, handles millions of rows, and supports fast `IN` lookups. The 900-key chunks stay under SQLite's limit on query parameters.
+  - Effect: `hse tune` reruns in under a minute instead of 45, and the CI gate only scores pairs it hasn't seen.
+  - Serving (`search`) doesn't use the cache. Live latency is measured honestly.
+
+```python
+def _predict(self, pairs, progress=False):
+    keys → known = cache.get_many(unique keys)
+    missing = first index of every key not in known
+    fresh = model.predict(only the missing pairs) → cache.put_many
+    return scores in the original order
+```
+
+- **Technical:** Only pairs not already cached go to the model, and duplicates within one call are scored once. The output is rebuilt in the caller's order, so callers can't tell whether a score came from the cache.
 
 ```python
 def rerank_many(self, queries, candidate_lists, texts, progress=False):
-    pairs, bounds = [], [0]
-    for q, cands in zip(queries, candidate_lists):
-        pairs.extend((q, texts[i]) for i in cands); bounds.append(len(pairs))
-    flat = self.model.predict(pairs, batch_size=self.batch_size)
-    split back by bounds, sort each
+    flatten all (query, doc) pairs, remember bounds, one _predict call, split back, sort each
 ```
 
-- **Technical:** For evaluation, all pairs from all queries are flattened into one list so the model runs in full batches of 64 instead of one small batch per query. `bounds` records where each query's pairs start, to split the scores back. This makes evaluation several times faster on GPU/MPS. Results are identical to calling `rerank` per query.
+- **Technical:** For evaluation, all pairs from all queries are flattened into one list so the model runs in full batches instead of one small batch per query. `bounds` records where each query's pairs start, to split the scores back. Results are identical to calling `rerank` per query.
 
-### 3.9 `router.py`: when to pay for the reranker
+### 3.9 `router.py`: deciding when to pay for the reranker
 
 ```python
-@dataclass
-class MarginRouter:
-    threshold: float
-    def should_rerank(self, margin): return margin < self.threshold
+def query_features(n_terms, bm_ids, bm_scores, dense_ids, dense_scores, fused_scores):
+    fused_margin      (s1 − s2) / s1 of the fused scores
+    dense_top1        cosine of the best dense hit
+    dense_gap_1_2     dense s1 − s2
+    dense_gap_1_10    dense s1 − s10
+    overlap_at_10     |BM25 top 10 ∩ dense top 10| / 10
+    bm25_gap_1_2      (b1 − b2) / b1
+    log_bm25_hits     log(1 + number of BM25 matches)
+    query_terms       analyzed query length
 ```
 
-- **Plain:** One number decides it. If the winner's lead is smaller than the threshold, call the expert; otherwise trust the fast answer. Threshold = infinity means always call the expert; threshold = 0 means never.
+- **Plain:** Before deciding whether to call the expert, look at a few clues you already have. Do the two searches agree? Is there a clear winner? How long is the question? None of these costs anything, because they come from work already done.
+- **Technical:**
+  - All eight are byproducts of retrieval, so computing them costs microseconds.
+  - Missing values (fewer than 2 or 10 results, zero BM25 hits) default to 0, so every query gets a finite vector. There's a test for the zero-BM25 case.
+  - The router's learned weights say which clues matter: low **overlap** between BM25 and dense (they disagree) and a flat **dense score curve** (no clear winner) predict gain; longer queries gain more.
+
+```python
+def _ridge(X, y, lam):
+    standardize X; add a bias column
+    w = solve(ZᵀZ + λI, Zᵀy)
+```
+
+- **Plain:** Fit a straight-line rule: predicted improvement = a weighted sum of the clues. The λ term keeps the weights small, so a few odd practice questions can't push them around.
+- **Technical:**
+  - Closed-form ridge regression, with λ = 10. Features are standardized first, so λ penalizes them equally and the weights can be compared.
+  - The target is each dev query's actual nDCG gain from reranking. It's noisy: 57% of dev queries gain nothing and 13% get worse.
+  - In cross-validation on dev, ridge-on-gain beat logistic regression on "gain > 0", which throws away how *much* a query gains.
+
+```python
+def pick_threshold(pred, base, full, recover):
+    if full.mean() ≤ base.mean(): never rerank
+    walk queries from highest predicted gain down, adding each one's real gain
+    stop when the total reaches recover × total gain → threshold = that query's prediction
+```
+
+- **Plain:** Sort the practice questions by how much we *think* the expert will help. Hand them to the expert one by one from the top, keeping a running total of the *actual* improvement. Stop when you've collected 80% of what the expert could give. The predicted score of the last question handed over becomes the cutoff.
+- **Technical:** It's a greedy scan, O(n log n) for the sort. It picks the smallest share that meets the target *given the model's ranking*. If reranking doesn't help on average, the threshold is +∞ (never rerank).
 
 ```python
 @classmethod
-def calibrate(cls, margins, fused_ndcg, reranked_ndcg, recover=0.9):
-    gain = full.mean() - base.mean()
-    if gain <= 0: return cls(0.0, recover, 0.0)
-    target = base.mean() + recover * gain
-    for t in np.unique(np.append(m, math.inf)):
-        if np.where(m < t, full, base).mean() >= target:
-            return cls(float(t), recover, float((m < t).mean()))
+def train(cls, X, base, full, recover=0.8, lam=10.0, folds=5, seed=0):
+    5-fold: fit on 4/5, predict the held-out 1/5 → out-of-fold predictions for every dev query
+    threshold, share = pick_threshold(out-of-fold predictions, base, full, recover)
+    refit on all dev queries → final weights
 ```
 
-- **Plain:** We know, for each practice question, how good the answer was with and without the expert. Try every possible threshold from strict to loose, and pick the strictest one (fewest expert calls) that still captures 90% of the improvement the expert gives overall. If the expert makes things worse on average, never call it.
+- **Plain:** If you set the cutoff using predictions on the same questions the rule learned from, the rule looks better than it is, and the cutoff ends up too low. So the cutoff is set using predictions on questions each rule *didn't* learn from.
 - **Technical:**
-  - Inputs are per-query arrays from the calibration half.
-  - For each candidate threshold `t` (every distinct margin, plus ∞), the routed nDCG is the per-query `where(margin < t, reranked, fused)` averaged. Thresholds are scanned in increasing order, so the first one that meets the target is the cheapest.
-  - It's O(n²) in calibration queries, which is fine for a few hundred.
-  - Why "recover 90% of the gain" and not "keep 97% of nDCG": the reranker adds less than 1 point here, so keeping 97% of nDCG is satisfied by reranking nothing. I hit that degenerate result first and changed the target.
-  - When `gain <= 0` (SciFact), the threshold is 0, and since margins are ≥ 0, `margin < 0` is never true.
-
-```python
-def save(self, path): raw["threshold"] = None if math.isinf(self.threshold) else ...
-```
-
-- **Technical:** JSON has no infinity, so ∞ is stored as `null` and turned back into `math.inf` on load.
+  - The threshold comes from out-of-fold predictions; the weights come from a final fit on all the data. That's standard practice for calibrating a decision threshold.
+  - Even so, on test the router recovered 69% of the gain, not the 80% target. The test queries' predicted gains were distributed differently (49% routed vs 40% on dev).
+  - `always()` is a zero-weight router with threshold −∞, used when no trained router exists.
+  - `save` and `load` write plain JSON, including the feature names, to `results/router.json`. Python's `json` reads and writes ±Infinity.
 
 ### 3.10 `pipeline.py`: wiring it together
 
@@ -572,13 +618,13 @@ def build_artifacts(ds, cfg, encoder=None):
 ```python
 class HybridSearcher:
     @classmethod
-    def open(cls, dataset, cfg=None, with_reranker=True):
+    def open(cls, dataset, cfg=None, with_reranker=True, cache_scores=False):
         ds = data.load(dataset); bm, index, encoder = build_artifacts(ds, cfg)
-        reranker = Reranker(...) if with_reranker else None
-        router = MarginRouter.load(router.json) if it exists else None   → always rerank
+        reranker = Reranker(..., cache=cache_scores) if with_reranker else None
+        router = Router.load(results/router.json) if it exists else None   → always rerank
 ```
 
-- **Technical:** One object holds everything a query needs, loaded once. `with_reranker=False` skips loading the cross-encoder for runs that don't need it (tuning prep, BM25-only experiments). With no calibrated router, it falls back to always reranking: the safe default for quality.
+- **Technical:** One object holds everything a query needs, loaded once. `with_reranker=False` skips loading the cross-encoder for runs that don't need it. `cache_scores=True` is used by evaluation and tuning, never by serving. With no trained router, it falls back to always reranking: the safe default for quality.
 
 ```python
 def _fuse(self, bm_ids, dense_ids, ce_ids=None):
@@ -587,27 +633,38 @@ def _fuse(self, bm_ids, dense_ids, ce_ids=None):
     return rrf([ce_ids, bm_ids, dense_ids], k, [w_rerank, w_bm25, w_dense])
 ```
 
-- **Plain:** Without the expert, combine two votes. With the expert, combine three. The expert doesn't get to throw out the other two votes.
-- **Technical:** This is the "reranker as a voter" decision, and it's the key design choice in the pipeline. Standard practice replaces the top-N order with the cross-encoder order (`hybrid+ce-only` in the results). Measured mean nDCG@10 across three datasets: ce-only 47.68, voting 49.80, dense alone 48.40. The out-of-domain cross-encoder is wrong often enough on SciFact and FiQA that letting it overrule two decent retrievers costs quality. As one weighted vote, it helps where it's right and is outvoted where it isn't. Docs outside the top 30 get no reranker vote but keep their BM25/dense votes, so they can still appear.
+- **Plain:** Without the expert, combine two votes. With the expert, combine three, and the expert's vote counts four times as much as the meaning search's. The expert dominates but doesn't erase the other two.
+- **Technical:**
+  - Standard practice replaces the top-N order with the cross-encoder's order (`hybrid+ce-only` in the results).
+  - With the weak MiniLM reranker, voting beat replacing by 2.1 points. With gte it's a smaller edge: 53.89 vs 53.46 mean, significant only on NFCorpus.
+  - Voting still matters for two reasons. BM25 and dense break ties among docs the reranker scores alike. And docs outside the top 30 keep their votes, so a relevant doc at fused rank 31 isn't buried.
+  - Both `search` and `run_batch` go through `_fuse`, so the evaluated system is the served system.
 
 ```python
+def features(self, query, bm, dense, fused_scores):
+    return query_features(len(self.bm25.analyzer(query)), *bm, *dense, fused_scores)
+
 def search(self, query, k=10, rerank="auto"):
-    t0 … encode … t1 … dense … t2 … bm25 … t3 … fuse + margin … t4
-    use_reranker = reranker exists and (rerank == "always" or (rerank == "auto" and router says yes))
-    if use_reranker: ce rerank top 30 → three-way fuse; clock["rerank"]
-    hits = [Hit(doc_ids[i], score, texts[i]) for top k]
-    timings in ms, plus "total"
+    encode → dense (ids + scores) → BM25 (ids + scores) → fuse
+    feats = self.features(...); predicted = router.predict(feats)
+    use_reranker = reranker exists and (rerank == "always" or (rerank == "auto" and predicted ≥ threshold))
+    if use_reranker: rerank top 30 → three-way fuse
+    return SearchResult(hits, reranked, predicted_gain, timings_ms)
 ```
 
-- **Technical:** `time.perf_counter()` is the high-resolution monotonic clock, unaffected by system clock changes. Per-stage timings are returned with every result, which is how the API exposes them and how the routing experiment measures latency. `dense_ids[0][dense_ids[0] >= 0]` drops FAISS `-1` padding. The returned `score` is the fused RRF score, not a probability; it's only meaningful for ordering.
+- **Technical:**
+  - The dense and BM25 *scores* are kept now, not just IDs, because the router needs them.
+  - The predicted gain is returned with every result, so the API shows why a query was or wasn't reranked.
+  - `time.perf_counter()` gives per-stage timings, which is how the routing experiment measures latency.
+  - The returned `score` is the fused RRF score, which only means something for ordering.
 
 ```python
 def run_batch(self, queries, rerank=True, progress=False):
-    one encoder call, one FAISS call for all queries; BM25 per query; fuse per query
-    out = {"bm25", "dense", "hybrid", "margins", "hybrid+ce-only", "hybrid+rerank"}
+    one encoder call, one FAISS call; BM25 per query; fuse per query; features per query
+    out = {"bm25", "dense", "hybrid", "features", "hybrid+ce-only", "hybrid+rerank"}
 ```
 
-- **Technical:** The same logic as `search`, batched for evaluation speed. A single `index.search` on a (Q × 384) matrix lets FAISS use a BLAS matrix multiply instead of Q separate vector scans. `hybrid+ce-only` reuses the same cross-encoder scores, so the ablation costs nothing extra. If `search` and `run_batch` ever disagreed, the evaluated system wouldn't be the served system. Both go through `_fuse` so that can't drift.
+- **Technical:** The same logic as `search`, batched for evaluation speed. A single `index.search` on a (Q × 384) matrix lets FAISS use a BLAS matrix multiply. `features` is a (Q × 8) array saved into the per-query results file, which is what the router is applied to on test. `hybrid+ce-only` reuses the same cross-encoder scores, so that ablation costs nothing extra.
 
 ### 3.11 `metrics.py`: how quality is scored
 
@@ -652,39 +709,46 @@ def paired_test(a, b): scipy.stats.ttest_rel over per-query scores (same query o
 
 ### 3.12 `experiments.py`: the experiments
 
-**`evaluate`** runs Path C. It saves aggregate metrics, p-values for the full pipeline vs each other system, wall time, and the environment (Python, FAISS, torch versions, CPU, git commit). The per-query file (query IDs, margins, per-query nDCG for every system) is what the router calibrates on, so routing never re-runs the expensive models.
+**`evaluate`** runs Path C. It saves aggregate metrics, p-values for the full pipeline vs each other system, wall time, and the environment (Python, FAISS, torch versions, CPU, git commit). The per-query file (query IDs, the 8 router features, per-query nDCG for every system) is what the trained router is applied to on test, so routing quality never re-runs the expensive models.
+
+**`_held_out_runs`** loads one split per dataset (SciFact train, NFCorpus dev, FiQA dev by default) on top of the test-split index, since the corpus is the same, and runs the batch pipeline. Both `tune` and `routing` use it, so they see exactly the same dev queries.
 
 **`tune`**
 
 ```python
-for wb in bm25_grid:                                   # 6 values
-    fuse with w_bm25 = wb, rerank the top 30 once
-    for wr in rerank_grid:                             # 5 values
-        three-way fuse with (wr, wb, 1.0), nDCG on dev qrels
-best = max(grid, key=mean over the 3 datasets)
+pool[q] = union over w_bm25 in grid of fused top-30          # one candidate set per dev query
+for model in (MiniLM-L6, bge-reranker-base, gte-modernbert):
+    score every pool once (cached) → dict doc → score
+    for depth in (10, 20, 30), w_bm25 in (0.1, 0.2, 0.3, 0.5), w_rerank in (0.5 … 10):
+        candidates = fused top-depth at this w_bm25
+        reranker order = candidates sorted by cached score
+        final = rrf([reranker order, bm25, dense], [w_rerank, w_bm25, 1.0]) → dev nDCG@10
+best = max over all 252 combinations of the unweighted mean across the 3 datasets
 ```
 
-- **Plain:** Try 30 combinations of how much to trust keywords and how much to trust the expert, on practice questions only, and keep the best.
+- **Plain:** Ask each candidate expert to grade every document that could possibly reach them, once, and write the grades down. Then try 252 combinations of settings using only the written grades, on practice questions only, and keep the best.
 - **Technical:**
-  - The cross-encoder runs only 6 times per dataset (once per BM25 weight, since its candidates depend on the first fusion), not 30. Changing the reranker weight only needs re-fusion.
-  - `dataclasses.replace` makes a modified copy of the config, so the base config isn't mutated.
-  - The best point (0.1, 0.5) is at the low edge of the BM25 grid, so a value below 0.1 might be slightly better. I'd extend the grid next time.
-  - The mean across datasets is unweighted, so each dataset counts equally regardless of its query count.
+  - The pool trick is what makes this cheap and *exact*. The top-30 candidates change with the BM25 weight, but they always come from the union of the top 30s across the grid, so scoring that union once covers every combination.
+  - Sorting the candidates by cached score with Python's stable sort gives the same order the live reranker produces.
+  - The results were MiniLM 50.98, bge-reranker-base 51.24, **gte 54.87**, against dense alone at 49.49 (mean dev nDCG@10). The winner sits on a flat plateau (BM25 0.2–0.3, reranker 3–4), so small changes don't matter, which is reassuring.
+  - The full grid is written to `results/tune.json`.
 
 **`routing`**
 
 ```python
-split query indices 50/50 with a fixed seed
-router = calibrate(on calibration half)
-held-out: routed nDCG, full rerank nDCG, no-rerank nDCG,
-          random routing at the same share = base + share × (full − base)
-latency: 200 held-out queries × {never, always, auto}, 5 warm-up queries first
+dev:  run the full pipeline on dev queries (cached scores) → features X, nDCG without / with reranking
+      router = Router.train(X, base, full, recover=0.8) → results/router.json
+test: per-query file from evaluate → router.predict(features) ≥ threshold → routed nDCG
+      compare with always, never, and random routing at the same share = base + share × (full − base)
+latency: 100 test queries per dataset × {never, always, auto}, 3 warm-up queries first
 ```
 
 - **Technical:**
-  - Calibrating and reporting on the same queries would overfit the threshold. The 50/50 split is the minimum honest protocol.
-  - The "random routing at the same share" baseline is the important control. If the margin carried no information, random routing would score the same. Measured: NFCorpus 33.32 (margin) vs 33.24 (random); FiQA 43.18 vs 43.16. Basically the same, so the margin isn't picking the right queries.
-  - Warm-up queries exclude one-time costs (lazy initialization, first-call kernel compilation) from the timings.
+  - The router never sees a test query while it's trained or calibrated. The test numbers come from applying a frozen model.
+  - The "random routing at the same share" baseline is the control that matters. A router that reranks 49% of queries has to beat random at 49%, not just "keep most of the quality." Measured pooled nDCG: routed 50.06, random 49.10.
+  - Latency is measured on CPU with real model calls (no cache), because that's what serving pays.
+  - Warm-up queries exclude one-time costs from the timings.
+  - Per-dataset results go to `results/routing/<dataset>.json`; pooled results and the router weights go to `results/routing/summary.json`.
 
 **`bench`**
 
@@ -712,7 +776,7 @@ for each of 12 configs:
 
 ### 3.13 `report.py`
 
-It reads every JSON in `results/eval`, `results/bench` and `results/routing` and writes `results/RESULTS.md` with the quality table, means, p-values, the benchmark table with both operating points, rescoring results, the routing table with the random baseline, and the environment. The report is generated from data, not typed by hand, so the numbers in it can't drift from the experiments.
+It reads every JSON in `results/eval` and `results/bench`, plus `results/routing/summary.json`, and writes `results/RESULTS.md` with the quality table, means, p-values, the benchmark table with both operating points, rescoring results, the routing table with the random baseline and the router's weights, and the environment. The report is generated from data, not typed by hand, so the numbers in it can't drift from the experiments.
 
 ### 3.14 `gate.py`
 
@@ -731,7 +795,8 @@ def run_gate(dataset="scifact", tolerance=0.5, update=False, device="cpu"):
 - **Technical:**
   - It gates three systems so a regression is localized: if dense drops, the embedding side broke; if only hybrid+rerank drops, look at fusion or the reranker.
   - It gates two metrics because a change can keep nDCG@10 flat while losing recall@100. That's invisible today and painful once the reranker is changed.
-  - `device="cpu"` makes local and CI runs compare the same way. I built the baseline on CPU; it matched the MPS numbers exactly, and the first GitHub Actions run on Linux matched it to +0.00 on every metric.
+  - `device="cpu"` makes local and CI runs compare the same way. With the first version of the pipeline, the CPU baseline matched the MPS numbers exactly, and GitHub's Linux runner matched it to +0.00 on every metric.
+  - `evaluate` runs with the reranker score cache on. In CI the cache persists between runs, so only pairs whose text changed get re-scored. The cold first run scores about 9,000 pairs on a 4-vCPU runner.
   - The 0.5-point tolerance absorbs floating-point differences across machines while still catching real regressions.
   - Verified both ways: cutting `depth` from 100 to 10 failed the gate (recall@100 −11.4 points, exit code 1). Removing the query prefix *raised* SciFact scores and correctly passed.
   - Improvements never overwrite the baseline automatically. `--update` is a deliberate act that shows up in the PR diff.
@@ -763,7 +828,8 @@ def search(q: str = Query(..., min_length=1, max_length=1000),
   - Input validation is declared in the signature. Empty queries, k outside 1..100, and unknown rerank modes get a 422 before any search runs. `max_length=1000` caps how much text a single request can push through the encoder.
   - The handler is a plain `def`, not `async def`, so FastAPI runs it in a threadpool and the CPU-bound search doesn't block the event loop.
   - Snippets are cut to 300 characters to keep responses small.
-  - `/health` reports the dataset, size, models and router threshold. It returns 503 if the index isn't loaded, which is what a load balancer probe needs.
+  - Every response includes `predicted_gain` (the router's estimate) and whether the reranker ran, plus per-stage timings.
+  - `/health` reports the dataset, size, models and router threshold (`null` when there's no trained router). It returns 503 if the index isn't loaded, which is what a load balancer probe needs.
 
 ### 3.16 `cli.py`
 
@@ -785,11 +851,12 @@ def cmd_search(args):
 | `test_fusion.py` | Docs in both lists rise to the top, exact RRF value, padding ignored, deterministic tie-breaks, weights scale votes, zero weight skips a list, margin edge cases |
 | `test_metrics.py` | nDCG perfect and partial (checked by hand), zero grades ignored, recall, MRR, self-match dropping, identical-run p-value |
 | `test_dense.py` | Flat equals NumPy brute force; HNSW recall rises with efSearch; binary packs 1 bit/dim and finds exact self-matches; rescoring restores exact order and handles missing IDs; save/load gives identical results |
-| `test_router.py` | Calibration picks the cheapest threshold that meets the target; full recovery needs every helpful query; never reranks when the reranker hurts; ∞ survives JSON |
+| `test_router.py` | Each of the 8 features checked by hand; zero BM25 hits gives finite features; the threshold walk takes the highest predicted gain first; never reranks when the reranker hurts; a router trained on synthetic data finds the queries that gain; ±∞ survives JSON |
+| `test_rerank.py` | With a fake model: each unique pair is scored once, the cache survives reopening, `rerank_many` splits and sorts per query, the cache key can't confuse query and passage boundaries |
 | `test_data.py` | Dataset name parsing (including hyphenated names), qrels parsing, subsampling keeps every judged doc with its text |
 | `test_api.py` | `/search` and `/health` with a fake searcher, input validation returns 422 |
 
-All 31 run in under 2 seconds, with no models or downloads, so they run first in CI before the slower quality gate.
+All 37 run in under 2 seconds, with no models or downloads, so they run first in CI before the slower quality gate.
 
 ### 3.18 Project files
 
@@ -807,7 +874,9 @@ All 31 run in under 2 seconds, with no models or downloads, so they run first in
 ```yaml
 tests:          uv sync --locked → pytest
 quality-gate:   needs: tests
-                cache ~/.cache/huggingface, data/, artifacts/
+                cache 1: ~/.cache/huggingface, cache/   (model weights + reranker scores)
+                  key = hash(config.py), restore-keys: models-
+                cache 2: data/, artifacts/   (datasets, BM25, vectors, FAISS)
                   key = hash(uv.lock, config.py, data.py, bm25.py, embed.py, dense.py)
                 hse gate --dataset scifact --tolerance 0.5 --device cpu
                 upload results/gate/ as an artifact
@@ -816,6 +885,6 @@ quality-gate:   needs: tests
 - **Technical:**
   - `--locked` fails if `uv.lock` is out of date, rather than silently re-resolving to different versions.
   - The gate only runs after unit tests pass, which saves minutes on broken PRs.
-  - The cache key includes every file that changes how artifacts are built. Editing `bm25.py` therefore invalidates the cache and rebuilds the index, instead of evaluating new code against stale indexes. Editing `fusion.py` doesn't, because fusion happens at query time.
-  - `concurrency` cancels superseded runs on the same branch.
+  - There are two caches because they go stale for different reasons. Model weights and reranker scores depend only on the models (and the text, which is in the score key), so they're restored even after code changes. Indexes depend on code, so their key includes every file that changes how artifacts are built. Editing `bm25.py` therefore invalidates the cache and rebuilds the index, instead of evaluating new code against stale indexes. Editing `fusion.py` doesn't, because fusion happens at query time.
+  - `concurrency` cancels superseded runs on the same branch. `timeout-minutes: 120` covers the cold first run, where the 150M-parameter reranker scores everything on a 4-vCPU CPU.
   - It's free: public repos get unlimited GitHub Actions minutes on standard runners.
