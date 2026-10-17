@@ -3,14 +3,14 @@ from fastapi.testclient import TestClient
 from hybrid_search.api import create_app
 from hybrid_search.config import Config
 from hybrid_search.pipeline import Hit, SearchResult
-from hybrid_search.router import MarginRouter
+from hybrid_search.router import Router
 
 
 class FakeSearcher:
     def __init__(self):
         self.cfg = Config()
         self.reranker = None
-        self.router = MarginRouter.always()
+        self.router = Router.always()
         self.calls = []
 
         class DS:

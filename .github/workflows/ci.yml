@@ -23,7 +23,7 @@ jobs:
   quality-gate:
     runs-on: ubuntu-latest
     needs: tests
-    timeout-minutes: 45
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.3.0
@@ -34,9 +34,15 @@ jobs:
         with:
           path: |
             ~/.cache/huggingface
+            cache
+          key: models-${{ hashFiles('src/hybrid_search/config.py') }}
+          restore-keys: models-
+      - uses: actions/cache@v6
+        with:
+          path: |
             data
             artifacts
-          key: gate-${{ hashFiles('uv.lock', 'src/hybrid_search/config.py', 'src/hybrid_search/data.py', 'src/hybrid_search/bm25.py', 'src/hybrid_search/embed.py', 'src/hybrid_search/dense.py') }}
+          key: index-${{ hashFiles('uv.lock', 'src/hybrid_search/config.py', 'src/hybrid_search/data.py', 'src/hybrid_search/bm25.py', 'src/hybrid_search/embed.py', 'src/hybrid_search/dense.py') }}
       - name: retrieval quality vs results/baseline.json
         run: uv run hse gate --dataset scifact --tolerance 0.5 --device cpu
       - uses: actions/upload-artifact@v7

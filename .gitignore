@@ -10,6 +10,7 @@ venv/
 # Data, models, and generated artifacts
 data/
 artifacts/
+cache/
 *.npy
 *.faiss
 *.index

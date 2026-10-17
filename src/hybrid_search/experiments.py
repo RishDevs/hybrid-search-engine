@@ -10,7 +10,6 @@ from . import data, metrics
 from .config import RESULTS_DIR, Config, artifact_dir
 from .embed import Encoder, cached_doc_vectors
 from .pipeline import HybridSearcher
-from .router import MarginRouter
 
 SYSTEMS = ("bm25", "dense", "hybrid", "hybrid+rerank")
 
@@ -54,7 +53,7 @@ def write_json(path, payload):
 def evaluate(dataset, cfg=None, out_dir=None):
     cfg = cfg or Config()
     out_dir = out_dir or RESULTS_DIR / "eval"
-    searcher = HybridSearcher.open(dataset, cfg)
+    searcher = HybridSearcher.open(dataset, cfg, cache_scores=True)
     ds = searcher.ds
     qids = list(ds.queries)
     texts = [ds.queries[q] for q in qids]
@@ -65,7 +64,7 @@ def evaluate(dataset, cfg=None, out_dir=None):
 
     systems, ndcg = {}, {}
     for name, results in runs.items():
-        if name == "margins":
+        if name == "features":
             continue
         run = metrics.to_run(results, qids, ds.doc_ids)
         systems[name] = metrics.summarize(run, ds.qrels)
@@ -94,7 +93,7 @@ def evaluate(dataset, cfg=None, out_dir=None):
         out_dir / f"{dataset}.per_query.json",
         {
             "query_ids": qids,
-            "margins": runs["margins"],
+            "features": runs["features"].tolist(),
             "ndcg": {name: [vals[q] for q in qids] for name, vals in ndcg.items()},
         },
     )
@@ -102,56 +101,94 @@ def evaluate(dataset, cfg=None, out_dir=None):
 
 
 TUNE_SPLITS = {"scifact": "train", "nfcorpus": "dev", "fiqa": "dev"}
+RERANKERS = (
+    "cross-encoder/ms-marco-MiniLM-L-6-v2",
+    "BAAI/bge-reranker-base",
+    "Alibaba-NLP/gte-reranker-modernbert-base",
+)
 
 
-def tune(splits=None, bm25_grid=(0.1, 0.2, 0.3, 0.5, 0.7, 1.0), rerank_grid=(0.0, 0.5, 1.0, 1.5, 2.0), cfg=None):
-    from dataclasses import replace
+def _held_out_runs(cfg, splits, rerank=False):
+    prepared = []
+    for name, split in splits.items():
+        searcher = HybridSearcher.open(name, cfg, with_reranker=rerank, cache_scores=True)
+        held = data.load(name, split=split)
+        qids = list(held.queries)
+        texts = [held.queries[q] for q in qids]
+        runs = searcher.run_batch(texts, rerank=rerank, progress=rerank)
+        prepared.append((name, searcher, held.qrels, qids, texts, runs))
+    return prepared
 
+
+def _ndcg_per_query(results, doc_ids, qrels, qids):
+    run = metrics.to_run(results, qids, doc_ids)
+    vals = metrics.per_query(run, qrels, "ndcg", 10)
+    return np.array([vals[q] for q in qids])
+
+
+def tune(cfg=None, splits=None, rerankers=RERANKERS, depths=(10, 20, 30),
+         bm25_grid=(0.1, 0.2, 0.3, 0.5), rerank_grid=(0.5, 1.0, 2.0, 3.0, 4.0, 6.0, 10.0)):
+    from .fusion import rrf
     from .rerank import Reranker
 
     cfg = cfg or Config()
     splits = splits or TUNE_SPLITS
-    reranker = Reranker(cfg.reranker_model, cfg.device)
+    prepared = _held_out_runs(cfg, splits)
 
-    prepared = []
-    for name, split in splits.items():
-        searcher = HybridSearcher.open(name, cfg, with_reranker=False)
-        held = data.load(name, split=split)
-        qids = list(held.queries)
-        texts = [held.queries[q] for q in qids]
-        runs = searcher.run_batch(texts, rerank=False)
-        prepared.append((name, searcher, held.qrels, qids, texts, runs))
+    pools = []
+    for _, _, _, _, _, runs in prepared:
+        per_query = []
+        for b, d in zip(runs["bm25"], runs["dense"]):
+            ids = set()
+            for wb in bm25_grid:
+                ids.update(rrf([b[0], d[0]], cfg.rrf_k, [wb, cfg.w_dense], max(depths))[0].tolist())
+            per_query.append(sorted(ids))
+        pools.append(per_query)
 
-    def ndcg(results, searcher, qrels, qids):
-        run = metrics.to_run(results, qids, searcher.ds.doc_ids)
-        return metrics.summarize(run, qrels)["ndcg@10"]
+    dense_only = {
+        name: float(_ndcg_per_query(runs["dense"], s.ds.doc_ids, qrels, qids).mean())
+        for name, s, qrels, qids, _, runs in prepared
+    }
 
     grid = []
-    for wb in bm25_grid:
-        per_dataset = []
-        for _, searcher, qrels, qids, texts, runs in prepared:
-            searcher.cfg = replace(cfg, w_bm25=wb)
-            fused = [searcher._fuse(b[0], d[0]) for b, d in zip(runs["bm25"], runs["dense"])]
-            ce = reranker.rerank_many(texts, [ids[: cfg.rerank_depth] for ids, _ in fused], searcher.ds.texts)
-            per_dataset.append((searcher, qrels, qids, runs, ce))
-        for wr in rerank_grid:
-            scores = {}
-            for (name, *_), (searcher, qrels, qids, runs, ce) in zip(prepared, per_dataset):
-                searcher.cfg = replace(cfg, w_bm25=wb, w_rerank=wr)
-                final = [searcher._fuse(b[0], d[0], c[0]) for b, d, c in zip(runs["bm25"], runs["dense"], ce)]
-                scores[name] = ndcg(final, searcher, qrels, qids)
-            grid.append({"w_bm25": wb, "w_rerank": wr, "ndcg@10": scores, "mean": float(np.mean(list(scores.values())))})
-            print(f"w_bm25={wb:<4} w_rerank={wr:<4} " + "  ".join(f"{k} {v * 100:.2f}" for k, v in scores.items())
-                  + f"  mean {grid[-1]['mean'] * 100:.2f}", flush=True)
+    for model in rerankers:
+        reranker = Reranker(model, cfg.device, cache=True)
+        scored = []
+        for (_, s, _, _, texts, _), pool in zip(prepared, pools):
+            ranked = reranker.rerank_many(texts, pool, s.ds.texts, progress=True)
+            scored.append([dict(zip(ids.tolist(), sc.tolist())) for ids, sc in ranked])
+        for depth in depths:
+            for wb in bm25_grid:
+                for wr in rerank_grid:
+                    scores = {}
+                    for (name, s, qrels, qids, _, runs), ce in zip(prepared, scored):
+                        final = []
+                        for b, d, sc in zip(runs["bm25"], runs["dense"], ce):
+                            cand = rrf([b[0], d[0]], cfg.rrf_k, [wb, cfg.w_dense], depth)[0].tolist()
+                            ce_ids = sorted(cand, key=lambda i: -sc[i])
+                            final.append(rrf([ce_ids, b[0], d[0]], cfg.rrf_k, [wr, wb, cfg.w_dense]))
+                        scores[name] = float(_ndcg_per_query(final, s.ds.doc_ids, qrels, qids).mean())
+                    grid.append({"reranker": model, "rerank_depth": depth, "w_bm25": wb, "w_rerank": wr,
+                                 "ndcg@10": scores, "mean": float(np.mean(list(scores.values())))})
+        top = max((g for g in grid if g["reranker"] == model), key=lambda g: g["mean"])
+        print(f"{model:44s} best depth={top['rerank_depth']} w_bm25={top['w_bm25']} w_rerank={top['w_rerank']} "
+              f"mean dev nDCG@10 {top['mean'] * 100:.2f}", flush=True)
 
-    dense_only = {name: ndcg(runs["dense"], searcher, qrels, qids) for name, searcher, qrels, qids, _, runs in prepared}
     best = max(grid, key=lambda g: g["mean"])
-    report = {"splits": splits, "dense_only": dense_only, "grid": grid, "best": best, "config": cfg.to_dict()}
+    report = {
+        "splits": splits,
+        "dense_only": dense_only,
+        "dense_only_mean": float(np.mean(list(dense_only.values()))),
+        "best": best,
+        "best_per_reranker": {m: max((g for g in grid if g["reranker"] == m), key=lambda g: g["mean"]) for m in rerankers},
+        "grid": grid,
+        "config": cfg.to_dict(),
+    }
     write_json(RESULTS_DIR / "tune.json", report)
     return report
 
 
-def _latency(searcher, queries, mode, warmup=5):
+def _latency(searcher, queries, mode, warmup=3):
     for q in queries[:warmup]:
         searcher.search(q, rerank=mode)
     samples, reranked = [], 0
@@ -168,72 +205,79 @@ def _latency(searcher, queries, mode, warmup=5):
     }
 
 
-def _recovered(base, full, routed):
+def _routing_quality(base, full, sent):
+    routed = np.where(sent, full, base).mean()
+    share = float(sent.mean())
     gain = full.mean() - base.mean()
-    return None if gain <= 0 else float((routed - base.mean()) / gain)
+    return {
+        "queries": int(len(base)),
+        "reranked_share": share,
+        "ndcg_hybrid": float(base.mean()),
+        "ndcg_full_rerank": float(full.mean()),
+        "ndcg_routed": float(routed),
+        "ndcg_random_same_share": float(base.mean() + share * gain),
+        "gain_recovered": float((routed - base.mean()) / gain) if gain > 0 else None,
+    }
 
 
-def routing(dataset, cfg=None, recover=0.9, seed=7, latency_queries=200, out_dir=None):
+def routing(cfg=None, recover=0.8, latency_queries=100, seed=7, out_dir=None):
+    from .config import ROUTER_FILE
+    from .router import FEATURES, Router
+
     cfg = cfg or Config()
     out_dir = out_dir or RESULTS_DIR / "routing"
-    per_query_file = RESULTS_DIR / "eval" / f"{dataset}.per_query.json"
-    if not per_query_file.exists():
-        evaluate(dataset, cfg)
-    pq = json.loads(per_query_file.read_text())
 
-    qids = pq["query_ids"]
-    margins = np.array(pq["margins"])
-    fused = np.array(pq["ndcg"]["hybrid"])
-    full = np.array(pq["ndcg"]["hybrid+rerank"])
+    X, base, full = [], [], []
+    for _, s, qrels, qids, _, runs in _held_out_runs(cfg, TUNE_SPLITS, rerank=True):
+        X.append(runs["features"])
+        base.append(_ndcg_per_query(runs["hybrid"], s.ds.doc_ids, qrels, qids))
+        full.append(_ndcg_per_query(runs["hybrid+rerank"], s.ds.doc_ids, qrels, qids))
+    router = Router.train(np.vstack(X), np.concatenate(base), np.concatenate(full), recover)
+    router.save(ROUTER_FILE)
 
-    order = list(range(len(qids)))
-    random.Random(seed).shuffle(order)
-    half = len(order) // 2
-    calib, held = np.array(sorted(order[:half])), np.array(sorted(order[half:]))
+    test = {}
+    pooled_base, pooled_full, pooled_sent = [], [], []
+    for name in TUNE_SPLITS:
+        pq_file = RESULTS_DIR / "eval" / f"{name}.per_query.json"
+        if not pq_file.exists():
+            evaluate(name, cfg)
+        pq = json.loads(pq_file.read_text())
+        b = np.array(pq["ndcg"]["hybrid"])
+        f = np.array(pq["ndcg"]["hybrid+rerank"])
+        sent = router.predict(np.array(pq["features"])) >= router.threshold
+        test[name] = _routing_quality(b, f, sent)
+        pooled_base.append(b)
+        pooled_full.append(f)
+        pooled_sent.append(sent)
 
-    router = MarginRouter.calibrate(margins[calib], fused[calib], full[calib], recover)
-    sent = margins[held] < router.threshold
-    routed_ndcg = float(np.where(sent, full[held], fused[held]).mean())
-    share = float(sent.mean())
-    random_ndcg = float(fused[held].mean() + share * (full[held].mean() - fused[held].mean()))
-
-    router.save(artifact_dir(dataset, cfg) / "router.json")
-
-    searcher = HybridSearcher.open(dataset, cfg)
-    searcher.router = router
     rng = random.Random(seed)
-    held_ids = [qids[i] for i in held]
-    sample = rng.sample(held_ids, min(latency_queries, len(held_ids)))
-    texts = [searcher.ds.queries[q] for q in sample]
+    latency = {}
+    for name in TUNE_SPLITS:
+        searcher = HybridSearcher.open(name, cfg)
+        searcher.router = router
+        qids = rng.sample(sorted(searcher.ds.queries), min(latency_queries, len(searcher.ds.queries)))
+        texts = [searcher.ds.queries[q] for q in qids]
+        lat = {mode: _latency(searcher, texts, mode) for mode in ("never", "always", "auto")}
+        lat["mean_cut"] = 1 - lat["auto"]["mean_ms"] / lat["always"]["mean_ms"]
+        lat["device"] = searcher.reranker.device
+        latency[name] = lat
+        write_json(out_dir / f"{name}.json", {"dataset": name, "test": test[name], "latency": lat})
 
-    report = {
-        "dataset": dataset,
+    pooled = _routing_quality(np.concatenate(pooled_base), np.concatenate(pooled_full), np.concatenate(pooled_sent))
+    always = np.mean([latency[n]["always"]["mean_ms"] for n in latency])
+    auto = np.mean([latency[n]["auto"]["mean_ms"] for n in latency])
+    summary = {
         "recover_target": recover,
         "threshold": router.threshold,
-        "calibration_queries": int(len(calib)),
-        "heldout_queries": int(len(held)),
-        "heldout": {
-            "ndcg_hybrid": float(fused[held].mean()),
-            "ndcg_full_rerank": float(full[held].mean()),
-            "ndcg_routed": routed_ndcg,
-            "ndcg_random_same_share": random_ndcg,
-            "retained": routed_ndcg / float(full[held].mean()),
-            "gain_recovered": _recovered(fused[held], full[held], routed_ndcg),
-            "reranked_share": share,
-        },
-        "latency": {
-            "device": searcher.reranker.device,
-            "queries": len(texts),
-            "never": _latency(searcher, texts, "never"),
-            "always": _latency(searcher, texts, "always"),
-            "auto": _latency(searcher, texts, "auto"),
-        },
+        "dev_share": router.calib_share,
+        "weights": {"intercept": router.weights[-1], **dict(zip(FEATURES, router.weights[:-1]))},
+        "test_pooled": pooled,
+        "test": test,
+        "latency_mean_ms": {"always": float(always), "auto": float(auto), "cut": float(1 - auto / always)},
         "env": environment(),
     }
-    lat = report["latency"]
-    report["latency"]["mean_cut"] = 1 - lat["auto"]["mean_ms"] / lat["always"]["mean_ms"]
-    write_json(out_dir / f"{dataset}.json", report)
-    return report
+    write_json(out_dir / "summary.json", summary)
+    return summary
 
 
 BENCH_CONFIGS = [

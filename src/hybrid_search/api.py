@@ -1,3 +1,4 @@
+import math
 import os
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -17,7 +18,7 @@ class HitOut(BaseModel):
 class SearchOut(BaseModel):
     query: str
     reranked: bool
-    margin: float
+    predicted_gain: float
     timings_ms: dict[str, float]
     hits: list[HitOut]
 
@@ -50,7 +51,7 @@ def create_app(searcher=None, dataset=None):
             "docs": len(s.ds),
             "dense_model": s.cfg.dense_model,
             "reranker": s.reranker.name if s.reranker else None,
-            "router_threshold": None if s.router.threshold == float("inf") else s.router.threshold,
+            "router_threshold": s.router.threshold if math.isfinite(s.router.threshold) else None,
         }
 
     @app.get("/search", response_model=SearchOut)
@@ -64,7 +65,7 @@ def create_app(searcher=None, dataset=None):
         return SearchOut(
             query=q,
             reranked=res.reranked,
-            margin=res.margin,
+            predicted_gain=res.predicted_gain,
             timings_ms=res.timings_ms,
             hits=[HitOut(doc_id=h.doc_id, score=h.score, snippet=h.text[:300]) for h in res.hits],
         )

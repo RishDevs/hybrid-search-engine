@@ -45,7 +45,7 @@ def cmd_search(args):
 
     searcher = HybridSearcher.open(args.dataset, _config(args), with_reranker=args.rerank != "never")
     res = searcher.search(args.query, k=args.k, rerank=args.rerank)
-    print(f"reranked={res.reranked} margin={res.margin:.3f} timings={res.timings_ms}")
+    print(f"reranked={res.reranked} predicted_gain={res.predicted_gain:+.4f} timings={res.timings_ms}")
     for rank, hit in enumerate(res.hits, 1):
         print(f"{rank:2d}. [{hit.doc_id}] {hit.score:.4f}  {hit.text[:110]}")
 
@@ -65,8 +65,12 @@ def cmd_eval(args):
 def cmd_tune(args):
     from .experiments import tune
 
-    best = tune(cfg=_config(args))["best"]
-    print(f"best on dev splits: w_bm25={best['w_bm25']} w_rerank={best['w_rerank']} (mean nDCG@10 {best['mean'] * 100:.2f})")
+    report = tune(cfg=_config(args))
+    best = report["best"]
+    print(
+        f"best on dev splits: {best['reranker']} depth={best['rerank_depth']} w_bm25={best['w_bm25']} "
+        f"w_rerank={best['w_rerank']} (mean nDCG@10 {best['mean'] * 100:.2f} vs dense {report['dense_only_mean'] * 100:.2f})"
+    )
 
 
 def cmd_bench(args):
@@ -78,15 +82,13 @@ def cmd_bench(args):
 def cmd_route(args):
     from .experiments import routing
 
-    cfg = _config(args)
-    for name in args.datasets:
-        r = routing(name, cfg, recover=args.recover)
-        h, lat = r["heldout"], r["latency"]
-        print(
-            f"{name}: rerank {h['reranked_share']:.0%} of queries, nDCG {h['ndcg_routed'] * 100:.2f} "
-            f"(full rerank {h['ndcg_full_rerank'] * 100:.2f}, no rerank {h['ndcg_hybrid'] * 100:.2f}), "
-            f"mean latency {lat['always']['mean_ms']:.0f} -> {lat['auto']['mean_ms']:.0f} ms ({lat['mean_cut']:.0%} less)"
-        )
+    r = routing(_config(args), recover=args.recover, latency_queries=args.latency_queries)
+    p, lat = r["test_pooled"], r["latency_mean_ms"]
+    print(
+        f"test: rerank {p['reranked_share']:.0%} of queries, recover {p['gain_recovered']:.0%} of the reranker's gain "
+        f"(random routing at the same share: {p['reranked_share']:.0%}); "
+        f"mean latency {lat['always']:.0f} -> {lat['auto']:.0f} ms ({lat['cut']:.0%} less)"
+    )
 
 
 def cmd_report(args):
@@ -171,9 +173,9 @@ def main(argv=None):
     sp.add_argument("--latency-queries", type=int, default=1000)
     models(sp)
 
-    sp = add("route", cmd_route, "calibrate and measure margin-based rerank routing")
-    sp.add_argument("datasets", nargs="*", default=list(DATASETS))
-    sp.add_argument("--recover", type=float, default=0.9)
+    sp = add("route", cmd_route, "train the rerank router on dev splits, measure it on test")
+    sp.add_argument("--recover", type=float, default=0.8)
+    sp.add_argument("--latency-queries", type=int, default=100)
     models(sp)
 
     add("report", cmd_report, "write results/RESULTS.md from saved runs")

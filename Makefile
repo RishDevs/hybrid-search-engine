@@ -26,7 +26,7 @@ bench:
 	$(RUN) hse bench --dataset quora-200k
 
 route:
-	$(RUN) hse route $(DATASETS)
+	$(RUN) hse route --device cpu
 
 report:
 	$(RUN) hse report
