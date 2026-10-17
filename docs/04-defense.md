@@ -244,9 +244,18 @@ Pinecone is paid and off-machine. Qdrant and Weaviate are free to self-host and 
 
 **Python, FAISS, BM25, Sentence-Transformers, cross-encoder, FastAPI, GitHub Actions**
 
-- Built hybrid search (from-scratch BM25, bge-small + FAISS, weighted RRF, cross-encoder voting); **+5.5 nDCG@10 over dense and +12.6 over BM25** across 3 BEIR datasets (p < 1e-5), with reranker and weights selected on dev splits only.
-- Benchmarked 12 FAISS indexes on 200K docs: **51× faster than exact search at 0.97 recall@10**; **32× smaller index with 0.01-point nDCG loss** via binary quantization + rescoring.
+- Built hybrid search (from-scratch BM25, bge-small + FAISS, weighted RRF, cross-encoder voting); **+5.5 nDCG@10 over dense and +12.6 over BM25** averaged across 3 BEIR datasets (full pipeline vs dense significant on each, p < 1e-5), with reranker and weights selected on dev splits only.
+- Benchmarked 12 FAISS indexes on 200K docs: **51× faster than exact search at 0.97 recall@10**; **32× smaller in-memory index** (binary quantization) with a 0.01-point nDCG loss when the top 100 are rescored from float32 vectors kept on disk.
 - Trained a ridge-regression router that predicts per-query reranker gain, **cutting mean CPU latency 57% while recovering 69% of the reranking gain on 49% of queries** (random routing: 49%); added a GitHub Actions gate that fails PRs on >0.5-point quality regressions; served via FastAPI.
+
+### STAR versions
+
+- Keyword search missed paraphrases and embedding search missed exact terms, so I built a hybrid retriever (from-scratch BM25, bge-small + FAISS, weighted reciprocal rank fusion, cross-encoder voting); selecting the reranker and weights on dev splits only, it **improved nDCG@10 by 5.5 points over dense and 12.6 over BM25** averaged across 3 BEIR datasets (gain over dense significant on each, p < 1e-5).
+- Cross-encoder reranking cost 1.6 s/query on CPU, so I trained a ridge-regression router that predicts each query's reranking gain from 8 retrieval signals, **cutting mean latency 57% while recovering 69% of the reranking gain on 49% of queries** (random routing: 49%).
+- To choose a vector index on measured tradeoffs, I benchmarked 12 FAISS configurations on a 200K-document corpus: HNSW was **51× faster than exact search at 0.97 recall@10**, and binary quantization made the **in-memory index 32× smaller with a 0.01-point nDCG loss** when rescoring from float32 vectors on disk.
+- To stop silent quality regressions, I added a GitHub Actions gate that re-evaluates retrieval on every PR and fails on drops over 0.5 points; a reranker score cache cut gate time **from 88 minutes to 39 seconds** with identical results on macOS and Linux.
+
+**Scope of each claim:** the +5.5 / +12.6 are means over three datasets; significance is for the full pipeline vs dense (and vs BM25) on each dataset, not for every comparison (hybrid without the reranker beats dense significantly only on NFCorpus, and voting vs replacing is significant only on NFCorpus). "32× smaller" is the in-memory index; total storage still includes the float32 vectors used for rescoring.
 
 Every number above traces to a file in `results/`:
 
@@ -255,7 +264,7 @@ Every number above traces to a file in `results/`:
 | +5.5 / +12.6 nDCG@10, p-values | `results/eval/{scifact,nfcorpus,fiqa}.json` |
 | Dev-only selection | `results/tune.json` |
 | 12 indexes, 200K docs, 51×, 0.968 recall | `results/bench/quora-200k.json` (HNSW32,Flat, efSearch=16) |
-| 32×, 0.01-point loss | same file (BFlat, `rescored`) |
+| 32× smaller in-memory index, 0.01-point loss | same file (BFlat, `rescored`) |
 | 57% latency cut, 69% gain on 49% of queries, random 49% | `results/routing/summary.json` |
 | Router weights | `results/router.json` |
 | 0.5-point gate | `src/hybrid_search/gate.py`, `.github/workflows/ci.yml`, `results/baseline.json` |

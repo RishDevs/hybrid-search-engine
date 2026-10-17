@@ -66,9 +66,9 @@ Measured on an Apple M4 Pro; latency on its CPU. Quality numbers are nDCG@10 on 
 | Hybrid (weighted RRF) | 72.12 | 35.63 | 40.49 | 49.42 |
 | **Hybrid + reranker vote** | **77.78** | **37.35** | **46.54** | **53.89** |
 
-- The full pipeline is **+5.5 nDCG@10 over dense-only and +12.6 over BM25-only** on average, significant on every dataset (paired t-test, p ≤ 1e-5).
+- The full pipeline is **+5.5 nDCG@10 over dense-only and +12.6 over BM25-only** on average. Its gain over dense is significant on each dataset (paired t-test, p ≤ 1e-5). Not every comparison is: hybrid without the reranker beats dense significantly only on NFCorpus.
 - **The learned router reranks 49% of test queries and recovers 69% of the reranker's gain**, where random routing at the same share would recover 49%. Mean CPU latency drops from **1,594 ms to 678 ms (57% less)**.
-- On a 200K-document corpus, **binary quantization shrinks the index exactly 32×** with a 0.01-point nDCG loss when the top 100 are rescored, and **HNSW is 51× faster than exact search at 0.968 recall@10** (32× within 0.5 nDCG points).
+- On a 200K-document corpus, **binary quantization shrinks the in-memory index exactly 32×** with a 0.01-point nDCG loss when the top 100 are rescored from float32 vectors kept on disk (so total storage doesn't shrink 32×), and **HNSW is 51× faster than exact search at 0.968 recall@10** (32× within 0.5 nDCG points).
 
 Full tables: [`results/RESULTS.md`](../results/RESULTS.md).
 

@@ -2,7 +2,20 @@
 
 Keyword search misses meaning; vector search misses exact terms like IDs and names. This project runs BM25 and dense embedding search side by side, fuses them with weighted reciprocal rank fusion, lets a cross-encoder vote on the top candidates when a learned router predicts it will help, and measures the tradeoff between search quality, speed, and memory.
 
-> **Status:** In development.
+## Status
+
+**Complete and reproducible.** Every component below is implemented, tested (37 unit tests) and covered by CI, and all experiments have been run end to end. Measured results, with the exact commands that produce them, are in [`results/RESULTS.md`](results/RESULTS.md).
+
+| Component | State |
+|---|---|
+| Hybrid retrieval (BM25 + dense + weighted RRF) | Done |
+| Cross-encoder reranking + learned router | Done |
+| Evaluation on SciFact, NFCorpus, FiQA (dev-only tuning) | Done |
+| FAISS benchmark (12 configs, 200K docs) | Done |
+| CI quality gate | Done; runs on every PR |
+| FastAPI service | Done; runs locally (not hosted) |
+
+**Possible next steps:** faster CPU reranking (ONNX/int8), incremental indexing, and evaluation on a held-out fourth dataset.
 
 ## What's in here
 

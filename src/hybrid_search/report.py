@@ -37,7 +37,7 @@ def quality_section(evals):
             f"vs BM25-only: {(means['hybrid+rerank'] - means['bm25']) * 100:+.2f} points (mean over {len(evals)} datasets)."
         )
         lines.append("")
-    lines.append("Paired t-test p-values per dataset:")
+    lines.append("Paired t-test p-values per dataset (significance differs by comparison and dataset):")
     lines.append("")
     for name, e in evals.items():
         ps = ", ".join(f"{k}: {v:.3g}" for k, v in e["p_values"].items())
@@ -77,9 +77,19 @@ def bench_section(benches):
                 f"{op['recall@10']:.3f} | {op['latency_ms']:.3f} | {r['speedup_vs_flat']:.1f}x | "
                 f"{_pts(r['ndcg@10'])} | {r['ndcg_delta_points']:+.2f} | {_quality(r)} |"
             )
+        lines += [
+            "",
+            "Compression = float32 vectors ÷ serialized index size, i.e. the index held in memory for search.",
+        ]
         rescored = [r for r in b["indexes"] if "rescored" in r]
         if rescored:
-            lines += ["", "With top-100 rescoring against float32 vectors kept on disk:", ""]
+            lines += [
+                "",
+                "With top-100 rescoring against float32 vectors kept on disk. These rows keep the in-memory "
+                "compression above, but total storage also includes the float32 vectors "
+                f"({b['docs'] * b['dim'] * 4 / 1e6:.0f} MB here).",
+                "",
+            ]
             lines += ["| index | recall@10 | latency ms | nDCG@10 | delta pts |", "|---|---|---|---|---|"]
             for r in rescored:
                 x = r["rescored"]
